@@ -58,7 +58,9 @@ import {
 import {
   DEFAULT_CLUB_SETTINGS,
   DEFAULT_MAX_PLAYERS,
+  formatMatchDisplayTitle,
   getMonthKey,
+  isRedundantMatchTitle,
   partitionAttendingVotes,
 } from './utils/clubUtils';
 import { isTestPlayerUid, seedTestPlayers, TEST_PLAYERS_DISMISSED_KEY } from './utils/testPlayers';
@@ -73,6 +75,7 @@ import { AdminHub } from './components/AdminHub';
 import { PaymentsHub } from './components/PaymentsHub';
 import { ClubRibbon } from './components/ClubRibbon';
 import { RibbonManager } from './components/RibbonManager';
+import { PlayerRatingDeck } from './components/PlayerRatingDeck';
 import { clearGmailAccessToken } from './utils/gmailAuth';
 
 type AppTab =
@@ -340,6 +343,21 @@ export default function App() {
       )
     );
 
+    unsubs.push(
+      onSnapshot(
+        query(collection(db, 'player_ratings'), where('skill', '>=', 0), where('skill', '<=', 100)),
+        (snap) => {
+          setRatings(
+            snap.docs.map((d) => ({
+              id: d.id,
+              ...(d.data() as Omit<PlayerRating, 'id'>),
+            }))
+          );
+        },
+        (err) => handleFirestoreError(err, OperationType.LIST, 'player_ratings')
+      )
+    );
+
     return () => unsubs.forEach((u) => u());
   }, [user, isEmailVerified]);
 
@@ -386,7 +404,6 @@ export default function App() {
   // Manager/Admin privileged subscriptions
   useEffect(() => {
     if (!user || !isEmailVerified || !isManagerOrAdmin) {
-      setRatings([]);
       setAllPrivateInfos([]);
       setPaymentAliases([]);
       setAllPhotoSubmissions([]);
@@ -394,21 +411,6 @@ export default function App() {
     }
 
     const unsubs: (() => void)[] = [];
-
-    unsubs.push(
-      onSnapshot(
-        query(collection(db, 'player_ratings'), where('skill', '>=', 0), where('skill', '<=', 100)),
-        (snap) => {
-          setRatings(
-            snap.docs.map((d) => ({
-              id: d.id,
-              ...(d.data() as Omit<PlayerRating, 'id'>),
-            }))
-          );
-        },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'player_ratings')
-      )
-    );
 
     unsubs.push(
       onSnapshot(
@@ -577,9 +579,9 @@ export default function App() {
           id: notifId,
           recipientUid: promoted.uid,
           matchId: activeMatch.id,
-          matchTitle: activeMatch.title.slice(0, 120),
+          matchTitle: formatMatchDisplayTitle(activeMatch).slice(0, 120),
           type: 'waitlist_promoted',
-          message: `A spot opened up for ${activeMatch.title}! You have been moved off the waiting list into the confirmed lineup.`,
+          message: `A spot opened up for ${formatMatchDisplayTitle(activeMatch)}! You have been moved off the waiting list into the confirmed lineup.`,
           read: false,
           createdBy: user.uid,
           createdAt: serverTimestamp(),
@@ -619,7 +621,7 @@ export default function App() {
       return;
     }
 
-    const managerOnlyTabs: AppTab[] = ['lineup', 'ratings', 'payments', 'setting'];
+    const managerOnlyTabs: AppTab[] = ['lineup', 'payments', 'setting'];
     if (!isManagerOrAdmin && managerOnlyTabs.includes(activeTab)) {
       setActiveTab('matchday');
     } else if (!isAdmin && (activeTab === 'admin' || activeTab === 'ribbon')) {
@@ -675,7 +677,7 @@ export default function App() {
     { id: 'matchday', label: 'Matchday', icon: CalendarCheck, visible: true, tier: 'player' },
     { id: 'matches', label: 'Matches Archive', icon: Archive, visible: true, tier: 'player' },
     { id: 'stats', label: 'Stats', icon: BarChart3, visible: true, tier: 'player' },
-    { id: 'ratings', label: 'Player Ratings', icon: Award, visible: isManagerOrAdmin, tier: 'manager' },
+    { id: 'ratings', label: 'Player Cards', icon: Award, visible: true, tier: 'player' },
     { id: 'payments', label: 'Payments', icon: DollarSign, visible: isManagerOrAdmin, tier: 'manager' },
     { id: 'setting', label: 'Setting', icon: Settings, visible: isManagerOrAdmin, tier: 'manager' },
     { id: 'education', label: 'Education', icon: BookOpen, visible: true, disabled: true, tier: 'player' },
@@ -1155,7 +1157,9 @@ export default function App() {
                     <div className="flex items-center gap-2 min-w-0">
                       <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                       <span className="font-medium truncate">
-                        Spot opened — {notif.matchTitle}
+                        {isRedundantMatchTitle(notif.matchTitle)
+                          ? 'Spot opened — Matchday'
+                          : `Spot opened — ${notif.matchTitle}`}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -1189,7 +1193,7 @@ export default function App() {
                     <div className="flex items-center gap-2 min-w-0">
                       <BellRing className="w-4 h-4 text-emerald-300 shrink-0" />
                       <span className="font-medium truncate">
-                        Poll open: {activeMatch.title}
+                        Poll open: {formatMatchDisplayTitle(activeMatch)}
                       </span>
                     </div>
                     <button
@@ -1240,6 +1244,7 @@ export default function App() {
 
             {activeTab === 'matches' && (
               <MatchesView
+                currentUserId={user.uid}
                 matches={matches}
                 activeMatch={activeMatch}
                 activeMatchVotes={activeMatchVotes}
@@ -1255,6 +1260,18 @@ export default function App() {
                 currentUserId={user.uid}
                 players={players}
                 completedMatches={completedMatches}
+              />
+            )}
+
+            {activeTab === 'ratings' && (
+              <PlayerRatingDeck
+                user={user}
+                profile={effectiveProfile}
+                players={players}
+                ratings={ratings}
+                completedMatches={completedMatches}
+                skillArrowThresholds={settings.skillArrowThresholds}
+                canEdit={isManagerOrAdmin}
               />
             )}
 
@@ -1280,7 +1297,7 @@ export default function App() {
               />
             )}
 
-            {(activeTab === 'lineup' || activeTab === 'ratings' || activeTab === 'setting') &&
+            {(activeTab === 'lineup' || activeTab === 'setting') &&
               isManagerOrAdmin && (
                 <ManagerHub
                   user={user}
@@ -1292,13 +1309,7 @@ export default function App() {
                   payments={payments}
                   players={players}
                   ratings={ratings}
-                  subTab={
-                    activeTab === 'ratings'
-                      ? 'scouting'
-                      : activeTab === 'setting'
-                        ? 'schedule'
-                        : 'formation'
-                  }
+                  subTab={activeTab === 'setting' ? 'schedule' : 'formation'}
                   onSubTabChange={(next) => {
                     if (next === 'scouting') setActiveTab('ratings');
                     else if (next === 'schedule') setActiveTab('setting');

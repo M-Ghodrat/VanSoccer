@@ -27,6 +27,7 @@ import {
 import {
   buildFinalizedEntriesFromMatch,
   computePlayerCareerStats,
+  formatMatchDisplayTitle,
   getMatchRosterTeams,
   MatchRosterTeam,
 } from '../utils/clubUtils';
@@ -568,7 +569,7 @@ export const PostMatchStatsEditor: React.FC<PostMatchStatsEditorProps> = ({
 
       await batch.commit();
       setDirty(false);
-      const msg = `Saved post-match stats for "${match.title}" (${cleanGames.length} ${
+      const msg = `Saved post-match stats for "${formatMatchDisplayTitle(match, { includeYear: true })}" (${cleanGames.length} ${
         cleanGames.length === 1 ? 'game' : 'games'
       }, ${cleanLate.length} late, ${cleanAbsent.length} absent).`;
       setSavedSuccess(msg);

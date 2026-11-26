@@ -510,7 +510,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
             className="font-display font-bold tracking-tight text-white leading-[1.0] text-balance"
             style={{ fontSize: 'clamp(2.35rem, 4.2vw, 3.85rem)' }}
           >
-            Weekly Vancouver Drop-In
+            Perspolis Vancouver
           </h1>
           <p className="text-sm text-slate-300 leading-relaxed max-w-lg">
             Sign in to confirm matchday attendance, view balanced squad formations, and track club standings every week.

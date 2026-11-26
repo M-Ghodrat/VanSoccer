@@ -42,6 +42,7 @@ interface SoccerPitchProps {
   compactTokens?: boolean;
   compactGrid?: boolean;
   goalsByUid?: Map<string, number>;
+  highlightUid?: string;
   skillArrowThresholds?: SkillArrowThresholds;
   onFormationChange?: (updated: TeamFormation) => void;
   onRestoreOriginal?: () => void;
@@ -1093,6 +1094,7 @@ export const SoccerPitch: React.FC<SoccerPitchProps> = ({
   compactTokens = false,
   compactGrid = false,
   goalsByUid,
+  highlightUid,
   skillArrowThresholds,
   onFormationChange,
   onRestoreOriginal,
@@ -1772,7 +1774,11 @@ export const SoccerPitch: React.FC<SoccerPitchProps> = ({
                           goalieOption={slot.goalieOption}
                           showRatings={showRatings}
                           skillArrowThresholds={resolvedThresholds}
-                          highlighted={isSelected || Boolean(isDraggingThis && dragState.moved)}
+                          highlighted={
+                            isSelected ||
+                            Boolean(isDraggingThis && dragState.moved) ||
+                            Boolean(highlightUid && slot.uid === highlightUid)
+                          }
                           compact={compactTokens}
                           goals={goalsByUid?.get(slot.uid) || 0}
                         />

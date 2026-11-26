@@ -14,6 +14,8 @@ import { DropInMatch, getTeamColorPalette, PlayerProfile } from '../types';
 import {
   computePlayerCareerStats,
   computeTeammateCoOccurrence,
+  formatMatchDisplayTitle,
+  isRedundantMatchTitle,
 } from '../utils/clubUtils';
 import { SoccerBallIcon } from './SoccerBallIcon';
 
@@ -532,7 +534,9 @@ export const StatsView: React.FC<StatsViewProps> = ({
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-semibold text-slate-900 truncate flex items-center gap-1.5">
-                                  <span className="truncate">{log.match.title}</span>
+                                  <span className="truncate">
+                                    {formatMatchDisplayTitle(log.match, { includeYear: true })}
+                                  </span>
                                   {log.goals > 0 && (
                                     <span
                                       className="inline-flex items-center gap-0.5 shrink-0"
@@ -553,7 +557,11 @@ export const StatsView: React.FC<StatsViewProps> = ({
                                 </span>
                               </div>
                               <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono-tabular">
-                                <span>{dateStr}</span>
+                                <span>
+                                  {isRedundantMatchTitle(log.match.title)
+                                    ? `Team ${log.teamColor}`
+                                    : dateStr}
+                                </span>
                                 <span className="inline-flex items-center gap-1.5">
                                   {log.matchRating !== null && (
                                     <span className="font-semibold text-slate-800">

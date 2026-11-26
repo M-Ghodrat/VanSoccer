@@ -582,7 +582,7 @@ export interface ExtractedEmailPayment {
 
 export function extractPaymentFromGmailDetail(
   detail: GmailMessageDetail,
-  monthlyFee = 20
+  monthlyFee = 25
 ): ExtractedEmailPayment {
   const receivedMs = detail.internalDateMs || Date.parse(detail.date);
   const receivedIso = Number.isFinite(receivedMs)
@@ -646,7 +646,7 @@ export function extractPaymentFromGmailDetail(
 
 export function parsePaymentReceiptEmail(
   msg: GmailMessageFull,
-  monthlyFee = 20
+  monthlyFee = 25
 ): ParsedPaymentReceipt | null {
   const headers = msg.payload?.headers || [];
   const getHeader = (name: string) =>
@@ -873,7 +873,7 @@ export async function fetchPaymentReceiptEmails(
   options: FetchReceiptsOptions
 ): Promise<{ receipts: ParsedPaymentReceipt[]; totalScanned: number }> {
   const daysBack = Math.max(7, Math.min(365, options.daysBack || 60));
-  const monthlyFee = options.monthlyFee && options.monthlyFee > 0 ? options.monthlyFee : 20;
+  const monthlyFee = options.monthlyFee && options.monthlyFee > 0 ? options.monthlyFee : 25;
   const maxResults = Math.max(10, Math.min(60, options.maxResults || 40));
 
   const baseTerms =

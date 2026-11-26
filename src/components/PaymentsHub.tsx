@@ -32,7 +32,7 @@ import {
   PlayerProfile,
   TeamFormation,
 } from '../types';
-import { getMonthKey, partitionAttendingVotes } from '../utils/clubUtils';
+import { formatMatchDisplayTitle, getMonthKey, partitionAttendingVotes } from '../utils/clubUtils';
 import {
   ALLOWED_GMAIL_SENDER,
   clearGmailAccessToken,
@@ -177,7 +177,7 @@ export const PaymentsHub: React.FC<PaymentsHubProps> = ({
   const [receiptServerQuery, setReceiptServerQuery] = useState('');
   const [showReceiptSearch, setShowReceiptSearch] = useState(false);
   const [showReceiptSettings, setShowReceiptSettings] = useState(false);
-  const [monthlyFee, setMonthlyFee] = useState<number>(20);
+  const [monthlyFee, setMonthlyFee] = useState<number>(25);
   const [autoConfirmExact, setAutoConfirmExact] = useState<boolean>(false);
 
   const [extractedReceipts, setExtractedReceipts] = useState<ExtractedEmailPayment[]>([]);
@@ -745,9 +745,9 @@ export const PaymentsHub: React.FC<PaymentsHubProps> = ({
                   id: notifId,
                   recipientUid: promoted.uid,
                   matchId: activeMatch.id,
-                  matchTitle: activeMatch.title.slice(0, 120),
+                  matchTitle: formatMatchDisplayTitle(activeMatch).slice(0, 120),
                   type: 'waitlist_promoted',
-                  message: `A spot opened up for ${activeMatch.title}! You have been moved off the waiting list into the confirmed lineup.`,
+                  message: `A spot opened up for ${formatMatchDisplayTitle(activeMatch)}! You have been moved off the waiting list into the confirmed lineup.`,
                   read: false,
                   createdBy: user.uid,
                   createdAt: serverTimestamp(),
@@ -945,7 +945,7 @@ export const PaymentsHub: React.FC<PaymentsHubProps> = ({
     for (const pay of payments) {
       if (!pay.paid || !filteredUidSet.has(pay.uid)) continue;
       if (pay.monthKey !== currentMonthKey) continue;
-      sum += Number(pay.amount) || 20;
+      sum += Number(pay.amount) || 25;
     }
     return Math.round(sum * 100) / 100;
   }, [filteredLedgerPlayers, payments, currentMonthKey]);
@@ -1282,7 +1282,7 @@ export const PaymentsHub: React.FC<PaymentsHubProps> = ({
                                   {isPaidCurrentMonth ? (
                                     <div className="inline-flex items-center gap-1.5">
                                       <span className="font-semibold text-emerald-700 font-mono-tabular">
-                                        Paid · {formatCurrency(currentMonthPayment?.amount ?? 20)}
+                                        Paid · {formatCurrency(currentMonthPayment?.amount ?? 25)}
                                       </span>
                                       {currentMonthPayment?.source === 'gmail' &&
                                         currentMonthPayment.gmailMessageId && (
@@ -1644,7 +1644,7 @@ export const PaymentsHub: React.FC<PaymentsHubProps> = ({
                             max={500}
                             value={monthlyFee}
                             onChange={(e) =>
-                              setMonthlyFee(Math.max(1, Number(e.target.value) || 20))
+                              setMonthlyFee(Math.max(1, Number(e.target.value) || 25))
                             }
                             className="w-16 px-2 py-1 rounded-md border border-slate-300 bg-white font-mono-tabular font-semibold text-slate-900"
                           />

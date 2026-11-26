@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Calendar, Clock, Search, Trophy, Users, X } from 'lucide-react';
+import { ArrowRight, Calendar, CheckCircle2, Clock, Search, Trophy, Users, X } from 'lucide-react';
 import { DropInMatch, getTeamColorPalette, MatchVote, PlayerProfile } from '../types';
-import { formatShortDateTime, partitionAttendingVotes } from '../utils/clubUtils';
+import {
+  formatMatchDisplayTitle,
+  getMatchRosterTeams,
+  isRedundantMatchTitle,
+  partitionAttendingVotes,
+} from '../utils/clubUtils';
 import { SoccerPitch } from './SoccerPitch';
 import { SoccerBallIcon } from './SoccerBallIcon';
 import { TeamJerseyIcon } from './TeamJerseyIcon';
 
 interface MatchesViewProps {
+  currentUserId: string;
   matches: DropInMatch[];
   activeMatch: DropInMatch | null;
   activeMatchVotes: MatchVote[];
@@ -16,9 +22,20 @@ interface MatchesViewProps {
   onNavigateManager?: () => void;
 }
 
-type MatchFilter = 'all' | 'current' | 'past';
+type MatchFilter = 'all' | 'mine' | 'current' | 'past';
+
+interface MyMatchParticipation {
+  status: 'played' | 'playing' | 'absent' | 'none';
+  teamColor?: string;
+  assignedPosition?: string;
+  goals: number;
+  isMvp: boolean;
+  isTopScorer: boolean;
+  matchRating?: number;
+}
 
 export const MatchesView: React.FC<MatchesViewProps> = ({
+  currentUserId,
   matches,
   activeMatch,
   activeMatchVotes,
@@ -34,6 +51,92 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
     activeMatch?.id || matches[0]?.id || ''
   );
 
+  const { confirmedVotes, waitlistedVotes } = useMemo(
+    () => partitionAttendingVotes(activeMatchVotes, maxPlayers),
+    [activeMatchVotes, maxPlayers]
+  );
+
+  const confirmedActiveUids = useMemo(
+    () => new Set(confirmedVotes.map((v) => v.uid)),
+    [confirmedVotes]
+  );
+
+  const participationByMatchId = useMemo(() => {
+    const map = new Map<string, MyMatchParticipation>();
+    for (const m of matches) {
+      const pg = m.postGameStats;
+      const absentSet = new Set(pg?.absentUids || []);
+      const isAbsent = absentSet.has(currentUserId);
+
+      let teamColor: string | undefined;
+      let assignedPosition: string | undefined;
+      for (const team of getMatchRosterTeams(m)) {
+        const found = team.players.find((pl) => pl.uid === currentUserId);
+        if (found) {
+          teamColor = team.teamColor;
+          assignedPosition = found.assignedPosition;
+          break;
+        }
+      }
+
+      let goals = 0;
+      for (const g of pg?.games || []) {
+        for (const ev of g.goals || []) {
+          if (ev.scorerUid === currentUserId) {
+            goals += 1;
+          }
+        }
+      }
+
+      const isMvp = pg?.bestPlayerUid === currentUserId;
+      const isTopScorer = pg?.topScorerUid === currentUserId;
+      const rawRating = pg?.playerMatchRatings?.[currentUserId];
+      const matchRating = typeof rawRating === 'number' ? rawRating : undefined;
+      const isConfirmedActive = activeMatch?.id === m.id && confirmedActiveUids.has(currentUserId);
+
+      if (isAbsent) {
+        map.set(m.id, { status: 'absent', teamColor, assignedPosition, goals: 0, isMvp: false, isTopScorer: false });
+        continue;
+      }
+
+      if (m.status === 'completed') {
+        const participated = Boolean(
+          teamColor || goals > 0 || isMvp || isTopScorer || matchRating !== undefined
+        );
+        map.set(m.id, {
+          status: participated ? 'played' : 'none',
+          teamColor,
+          assignedPosition,
+          goals,
+          isMvp,
+          isTopScorer,
+          matchRating,
+        });
+      } else {
+        const playing = Boolean(teamColor || isConfirmedActive);
+        map.set(m.id, {
+          status: playing ? 'playing' : 'none',
+          teamColor,
+          assignedPosition,
+          goals,
+          isMvp,
+          isTopScorer,
+          matchRating,
+        });
+      }
+    }
+    return map;
+  }, [matches, currentUserId, activeMatch?.id, confirmedActiveUids]);
+
+  const myMatches = useMemo(
+    () =>
+      matches.filter((m) => {
+        const p = participationByMatchId.get(m.id);
+        return p?.status === 'played' || p?.status === 'playing';
+      }),
+    [matches, participationByMatchId]
+  );
+
   const currentMatches = useMemo(
     () => matches.filter((m) => m.status !== 'completed'),
     [matches]
@@ -45,17 +148,21 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
 
   const filteredMatches = useMemo(() => {
     const base =
-      filter === 'current'
-        ? currentMatches
-        : filter === 'past'
-          ? pastMatches
-          : matches;
+      filter === 'mine'
+        ? myMatches
+        : filter === 'current'
+          ? currentMatches
+          : filter === 'past'
+            ? pastMatches
+            : matches;
     const term = searchQuery.trim().toLowerCase();
     if (!term) return base;
     return base.filter((m) =>
-      `${m.title} ${m.location} ${m.weekKey}`.toLowerCase().includes(term)
+      `${formatMatchDisplayTitle(m, { includeYear: true })} ${m.location} ${m.weekKey}`
+        .toLowerCase()
+        .includes(term)
     );
-  }, [filter, currentMatches, pastMatches, matches, searchQuery]);
+  }, [filter, myMatches, currentMatches, pastMatches, matches, searchQuery]);
 
   useEffect(() => {
     if (filteredMatches.length === 0) return;
@@ -69,10 +176,9 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
     [filteredMatches, selectedMatchId]
   );
 
-  const { confirmedVotes, waitlistedVotes } = useMemo(
-    () => partitionAttendingVotes(activeMatchVotes, maxPlayers),
-    [activeMatchVotes, maxPlayers]
-  );
+  const selectedParticipation = selectedMatch
+    ? participationByMatchId.get(selectedMatch.id) || null
+    : null;
 
   const isSelectedActive = Boolean(selectedMatch && activeMatch && selectedMatch.id === activeMatch.id);
 
@@ -148,6 +254,7 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
           <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
             {[
               { id: 'all' as const, label: `All (${matches.length})` },
+              { id: 'mine' as const, label: `My Games (${myMatches.length})` },
               { id: 'current' as const, label: `Current (${currentMatches.length})` },
               { id: 'past' as const, label: `Past (${pastMatches.length})` },
             ].map((tab) => (
@@ -170,7 +277,7 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
         <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-3">
           <h2 className="font-display text-2xl font-bold text-slate-900">No Matches Recorded Yet</h2>
           <p className="text-sm text-slate-600 max-w-md mx-auto">
-            Once a club manager opens a weekly drop-in poll, current and past match records will appear here.
+            Once a club manager opens a match poll, current and past match records will appear here.
           </p>
           {onNavigateManager && (
             <button
@@ -188,11 +295,13 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
           <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between text-xs">
               <span className="font-semibold text-slate-800">
-                {filter === 'current'
-                  ? 'Current Matches'
-                  : filter === 'past'
-                    ? 'Past Matches'
-                    : 'All Club Matches'}
+                {filter === 'mine'
+                  ? 'Games You Played'
+                  : filter === 'current'
+                    ? 'Current Matches'
+                    : filter === 'past'
+                      ? 'Past Matches'
+                      : 'All Club Matches'}
               </span>
               <span className="font-mono-tabular text-slate-500">
                 {filteredMatches.length} {filteredMatches.length === 1 ? 'session' : 'sessions'}
@@ -201,13 +310,17 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
 
             {filteredMatches.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-500">
-                No matches found for this filter.
+                {filter === 'mine'
+                  ? 'You have not played in any recorded matches yet.'
+                  : 'No matches found for this filter.'}
               </div>
             ) : (
               <div className="divide-y divide-slate-100 max-h-[620px] overflow-y-auto">
                 {filteredMatches.map((m) => {
                   const isCurrent = m.status !== 'completed';
                   const isSelected = selectedMatch?.id === m.id;
+                  const myPart = participationByMatchId.get(m.id);
+                  const didPlay = myPart?.status === 'played' || myPart?.status === 'playing';
                   const playerCount =
                     activeMatch?.id === m.id
                       ? confirmedVotes.length
@@ -220,13 +333,13 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
                       key={m.id}
                       type="button"
                       onClick={() => setSelectedMatchId(m.id)}
-                      className={`w-full text-left px-4 py-3.5 transition-colors flex flex-col gap-1 ${
-                        isSelected ? 'bg-emerald-50/90' : 'hover:bg-slate-50'
-                      }`}
+                      className={`w-full text-left px-4 py-3.5 transition-colors flex flex-col gap-1 border-l-[3px] ${
+                        didPlay ? 'border-l-emerald-600' : 'border-l-transparent'
+                      } ${isSelected ? 'bg-emerald-50/90' : 'hover:bg-slate-50'}`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-semibold text-slate-900 truncate">
-                          {m.title}
+                          {formatMatchDisplayTitle(m, { includeYear: true })}
                         </span>
                         <span
                           className={`text-[11px] font-semibold shrink-0 ${
@@ -237,12 +350,54 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 font-mono-tabular flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span>{new Date(m.kickoffIso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        {!isRedundantMatchTitle(m.title) ? (
+                          <span>
+                            {new Date(m.kickoffIso).toLocaleDateString('en-CA', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </span>
+                        ) : (
+                          <span>
+                            {new Date(m.kickoffIso).toLocaleTimeString('en-CA', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        )}
                         <span>·</span>
                         <span>{m.currentFormation?.teams.length || 2} teams</span>
                         <span>·</span>
                         <span>{playerCount} players</span>
                       </div>
+                      {didPlay && myPart && (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold text-emerald-700">
+                          <span className="inline-flex items-center gap-1">
+                            {myPart.teamColor ? (
+                              <TeamJerseyIcon color={myPart.teamColor} size={13} />
+                            ) : (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                            )}
+                            <span>
+                              {myPart.status === 'played' ? 'You played' : 'In lineup'}
+                              {myPart.assignedPosition ? ` · ${myPart.assignedPosition}` : ''}
+                            </span>
+                          </span>
+                          {myPart.goals > 0 && (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-slate-700 font-mono-tabular"
+                              title={`You scored ${myPart.goals} ${myPart.goals === 1 ? 'goal' : 'goals'}`}
+                            >
+                              <SoccerBallIcon className="w-3 h-3" />
+                              {myPart.goals}
+                            </span>
+                          )}
+                          {myPart.isMvp && (
+                            <span className="text-amber-700 font-bold">MVP</span>
+                          )}
+                        </div>
+                      )}
                     </button>
                   );
                 })}
@@ -259,7 +414,7 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-                          {selectedMatch.title}
+                          {formatMatchDisplayTitle(selectedMatch, { includeYear: true })}
                         </h2>
                         <span
                           className={`text-[11px] font-semibold ${
@@ -273,7 +428,16 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
                         <span className="inline-flex items-center gap-1">
                           <Calendar className="w-3.5 h-3.5 text-emerald-700" />
                           <span className="font-mono-tabular">
-                            {new Date(selectedMatch.kickoffIso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            {!isRedundantMatchTitle(selectedMatch.title)
+                              ? new Date(selectedMatch.kickoffIso).toLocaleDateString('en-CA', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric',
+                                })
+                              : new Date(selectedMatch.kickoffIso).toLocaleTimeString('en-CA', {
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                })}
                           </span>
                         </span>
                         {selectedMatch.currentFormation && (
@@ -299,6 +463,52 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
                       </button>
                     )}
                   </div>
+
+                  {/* Personal Participation Hint Bar */}
+                  {selectedParticipation &&
+                    (selectedParticipation.status === 'played' ||
+                      selectedParticipation.status === 'playing') && (
+                      <div className="px-3 py-2 rounded-lg bg-emerald-50/80 border border-emerald-200/80 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-950">
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-800">
+                          {selectedParticipation.teamColor ? (
+                            <TeamJerseyIcon color={selectedParticipation.teamColor} size={15} />
+                          ) : (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                          )}
+                          <span>
+                            {selectedParticipation.status === 'played'
+                              ? 'You played in this match'
+                              : "You're in this match"}
+                          </span>
+                        </span>
+                        {selectedParticipation.teamColor && (
+                          <span className="text-slate-700">
+                            Team <strong className="text-slate-900">{selectedParticipation.teamColor}</strong>
+                            {selectedParticipation.assignedPosition
+                              ? ` (${selectedParticipation.assignedPosition})`
+                              : ''}
+                          </span>
+                        )}
+                        {selectedParticipation.goals > 0 && (
+                          <span className="inline-flex items-center gap-1 font-mono-tabular font-semibold text-slate-900">
+                            <SoccerBallIcon className="w-3.5 h-3.5" />
+                            {selectedParticipation.goals}{' '}
+                            {selectedParticipation.goals === 1 ? 'goal' : 'goals'}
+                          </span>
+                        )}
+                        {selectedParticipation.matchRating !== undefined && (
+                          <span className="font-mono-tabular font-semibold text-emerald-800">
+                            Rating {selectedParticipation.matchRating.toFixed(1)}
+                          </span>
+                        )}
+                        {selectedParticipation.isMvp && (
+                          <span className="inline-flex items-center gap-1 font-semibold text-amber-800">
+                            <Trophy className="w-3.5 h-3.5 text-amber-600" />
+                            Match MVP
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                   {/* Active Match Live Attendance Summary */}
                   {isSelectedActive && (
@@ -486,6 +696,7 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
                       compactTokens={true}
                       compactGrid={true}
                       goalsByUid={goalsByUid}
+                      highlightUid={currentUserId}
                     />
                   );
                 })() : groupedFinalizedTeams.length > 0 ? (
@@ -512,17 +723,29 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
                             </span>
                           </div>
                           <ul className="divide-y divide-slate-100 text-xs">
-                            {team.players.map((pl) => (
-                              <li
-                                key={pl.uid}
-                                className="px-4 py-2 flex items-center justify-between gap-2"
-                              >
-                                <span className="font-medium text-slate-900">{pl.name}</span>
-                                <span className="font-mono-tabular font-semibold text-emerald-700">
-                                  {pl.assignedPosition}
-                                </span>
-                              </li>
-                            ))}
+                            {team.players.map((pl) => {
+                              const isMe = pl.uid === currentUserId;
+                              return (
+                                <li
+                                  key={pl.uid}
+                                  className={`px-4 py-2 flex items-center justify-between gap-2 ${
+                                    isMe ? 'bg-emerald-50/70' : ''
+                                  }`}
+                                >
+                                  <span className={`font-medium ${isMe ? 'text-emerald-950 font-semibold' : 'text-slate-900'}`}>
+                                    {pl.name}
+                                    {isMe && (
+                                      <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                                        You
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="font-mono-tabular font-semibold text-emerald-700">
+                                    {pl.assignedPosition}
+                                  </span>
+                                </li>
+                              );
+                            })}
                           </ul>
                         </div>
                       );
@@ -540,22 +763,34 @@ export const MatchesView: React.FC<MatchesViewProps> = ({
                       <p className="text-xs text-slate-500">No confirmed players yet.</p>
                     ) : (
                       <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2 text-xs">
-                        {confirmedVotes.map((v, idx) => (
-                          <div
-                            key={v.uid}
-                            className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-2"
-                          >
-                            <span className="font-medium text-slate-900 truncate">
-                              <span className="font-mono-tabular text-slate-400 mr-1.5">{idx + 1}.</span>
-                              {v.playerName}
-                            </span>
-                            {v.goalieOption !== 'none' && (
-                              <span className="text-[11px] font-semibold text-amber-700 shrink-0">
-                                {v.goalieOption === 'only_goalie' ? 'GK' : 'W-GK'}
+                        {confirmedVotes.map((v, idx) => {
+                          const isMe = v.uid === currentUserId;
+                          return (
+                            <div
+                              key={v.uid}
+                              className={`px-3 py-2 rounded-lg border flex items-center justify-between gap-2 ${
+                                isMe
+                                  ? 'bg-emerald-50/80 border-emerald-200'
+                                  : 'bg-slate-50 border-slate-200/80'
+                              }`}
+                            >
+                              <span className="font-medium text-slate-900 truncate">
+                                <span className="font-mono-tabular text-slate-400 mr-1.5">{idx + 1}.</span>
+                                {v.playerName}
+                                {isMe && (
+                                  <span className="ml-1 text-[10px] font-bold uppercase text-emerald-700">
+                                    (You)
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </div>
-                        ))}
+                              {v.goalieOption !== 'none' && (
+                                <span className="text-[11px] font-semibold text-amber-700 shrink-0">
+                                  {v.goalieOption === 'only_goalie' ? 'GK' : 'W-GK'}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

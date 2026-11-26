@@ -13,9 +13,11 @@ import {
 } from '../types';
 import {
   DEFAULT_MAX_PLAYERS,
+  formatMatchDisplayTitle,
   formatScheduleLabel,
   formatShortDateTime,
   getMonthKey,
+  isRedundantMatchTitle,
   partitionAttendingVotes,
 } from '../utils/clubUtils';
 import { SoccerPitch } from './SoccerPitch';
@@ -102,7 +104,7 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
     setNotice(null);
 
     if (attending && !hasPaidForMatchMonth) {
-      setError(`Club Fee Notice: You have to pay first for ${matchMonthKey} before joining this drop-in. Please contact a club manager or admin.`);
+      setError(`Club Fee Notice: You have to pay first for ${matchMonthKey} before joining this match. Please contact a club manager or admin.`);
       return;
     }
 
@@ -136,9 +138,9 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
             id: notifId,
             recipientUid: promoted.uid,
             matchId: activeMatch.id,
-            matchTitle: activeMatch.title.slice(0, 120),
+            matchTitle: formatMatchDisplayTitle(activeMatch).slice(0, 120),
             type: 'waitlist_promoted',
-            message: `A spot opened up for ${activeMatch.title}! You have been moved off the waiting list into the confirmed lineup.`,
+            message: `A spot opened up for ${formatMatchDisplayTitle(activeMatch)}! You have been moved off the waiting list into the confirmed lineup.`,
             read: false,
             createdBy: user.uid,
             createdAt: serverTimestamp(),
@@ -185,9 +187,9 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
             id: notifId,
             recipientUid: promoted.uid,
             matchId: activeMatch.id,
-            matchTitle: activeMatch.title.slice(0, 120),
+            matchTitle: formatMatchDisplayTitle(activeMatch).slice(0, 120),
             type: 'waitlist_promoted',
-            message: `A spot opened up for ${activeMatch.title}! You have been moved off the waiting list into the confirmed lineup.`,
+            message: `A spot opened up for ${formatMatchDisplayTitle(activeMatch)}! You have been moved off the waiting list into the confirmed lineup.`,
             read: false,
             createdBy: user.uid,
             createdAt: serverTimestamp(),
@@ -218,7 +220,7 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
       <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-3">
         <Calendar className="w-10 h-10 text-slate-400 mx-auto" />
         <div className="space-y-1 max-w-md mx-auto">
-          <h2 className="font-display text-2xl font-bold text-slate-900">No Active Drop-In Poll Yet</h2>
+          <h2 className="font-display text-2xl font-bold text-slate-900">No Active Match Poll Yet</h2>
           <p className="text-sm text-slate-600">
             Weekly polls open every {formatScheduleLabel(settings.pollOpenDay, settings.pollOpenTime)} with a confirmed roster limit of {maxPlayers} players.
           </p>
@@ -226,6 +228,12 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
       </div>
     );
   }
+
+  const hasCustomTitle = !isRedundantMatchTitle(activeMatch.title);
+  const kickoffTimeStr = new Date(activeMatch.kickoffIso).toLocaleTimeString('en-CA', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 
   return (
     <div className="space-y-6">
@@ -239,7 +247,7 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
             <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1">
               <Calendar className="w-3.5 h-3.5 text-slate-400" />
-              {formatShortDateTime(activeMatch.kickoffIso)}
+              {hasCustomTitle ? formatShortDateTime(activeMatch.kickoffIso) : kickoffTimeStr}
             </span>
             <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1">
@@ -248,7 +256,7 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
             </span>
           </div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-            {activeMatch.title}
+            {formatMatchDisplayTitle(activeMatch)}
           </h1>
         </div>
 

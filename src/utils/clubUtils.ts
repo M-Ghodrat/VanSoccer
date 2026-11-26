@@ -579,3 +579,35 @@ export async function compressAvatarFile(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+const REDUNDANT_MATCH_TITLE_RE =
+  /^(vancouver\s+weekly\s+drop[\s-]*in|weekly\s+vancouver\s+drop[\s-]*in|weekly\s+drop[\s-]*in|vancouver\s+drop[\s-]*in|drop[\s-]*in(\s+match)?)$/i;
+
+export function isRedundantMatchTitle(title?: string | null): boolean {
+  const raw = (title || '').trim();
+  return !raw || REDUNDANT_MATCH_TITLE_RE.test(raw);
+}
+
+export function formatMatchDateTitle(
+  dateInput: string | Date,
+  options?: { includeYear?: boolean; includeWeekday?: boolean }
+): string {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return 'Match';
+  return d.toLocaleDateString('en-CA', {
+    ...(options?.includeWeekday === false ? {} : { weekday: 'short' }),
+    month: 'short',
+    day: 'numeric',
+    ...(options?.includeYear ? { year: 'numeric' } : {}),
+  });
+}
+
+export function formatMatchDisplayTitle(
+  match: Pick<DropInMatch, 'title' | 'kickoffIso'>,
+  options?: { includeYear?: boolean; includeWeekday?: boolean }
+): string {
+  if (!isRedundantMatchTitle(match.title)) {
+    return match.title.trim();
+  }
+  return formatMatchDateTitle(match.kickoffIso, options);
+}

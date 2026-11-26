@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Save,
   Search,
+  UserCheck,
   X,
 } from 'lucide-react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -36,6 +37,7 @@ interface PlayerRatingDeckProps {
   ratings: PlayerRating[];
   completedMatches: DropInMatch[];
   skillArrowThresholds?: SkillArrowThresholds;
+  canEdit?: boolean;
 }
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -51,6 +53,7 @@ interface SinglePlayerCardProps {
   totalCount: number;
   hasNext: boolean;
   skillArrowThresholds: SkillArrowThresholds;
+  canEdit: boolean;
   onAdvanceNext: () => void;
 }
 
@@ -196,6 +199,61 @@ const CompactStatSlider: React.FC<CompactStatSliderProps> = ({
   );
 };
 
+interface ReadOnlyStatBarProps {
+  label: string;
+  shortLabel?: string;
+  numericValue: number | null;
+  thresholds: SkillArrowThresholds;
+  prominent?: boolean;
+}
+
+const ReadOnlyStatBar: React.FC<ReadOnlyStatBarProps> = ({
+  label,
+  shortLabel,
+  numericValue,
+  thresholds,
+  prominent = false,
+}) => {
+  const tier = getRatingTierStyle(numericValue, thresholds);
+
+  return (
+    <div className={prominent ? 'space-y-1.5' : 'space-y-1'}>
+      <div className="flex items-center justify-between gap-1.5">
+        <span
+          className={`font-semibold leading-none ${
+            prominent ? 'text-xs text-slate-900' : 'text-[11px] text-slate-700'
+          }`}
+        >
+          {label}
+          {shortLabel && (
+            <span className="ml-1 font-mono-tabular text-[10px] font-bold text-slate-400">
+              {shortLabel}
+            </span>
+          )}
+        </span>
+        <span
+          className={`font-mono-tabular font-bold leading-none ${
+            prominent ? 'text-sm text-slate-950' : 'text-xs'
+          } ${numericValue !== null ? tier.textAccent : 'text-slate-400'}`}
+        >
+          {numericValue !== null ? Math.round(numericValue) : '—'}
+        </span>
+      </div>
+
+      <div
+        className={`w-full rounded-full bg-slate-200/90 overflow-hidden ${
+          prominent ? 'h-2.5' : 'h-1.5'
+        }`}
+      >
+        <div
+          className={`h-full rounded-full transition-[width,background-color] duration-200 ${tier.fillBg}`}
+          style={{ width: `${numericValue ?? 0}%` }}
+        />
+      </div>
+    </div>
+  );
+};
+
 const parseRatingStr = (str: string): number | null => {
   if (str.trim() === '') return null;
   const n = Number(str);
@@ -214,11 +272,12 @@ const SinglePlayerCard: React.FC<SinglePlayerCardProps> = ({
   totalCount,
   hasNext,
   skillArrowThresholds,
+  canEdit,
   onAdvanceNext,
 }) => {
   const myRating = useMemo(
-    () => playerRatings.find((r) => r.managerId === user.uid) || null,
-    [playerRatings, user.uid]
+    () => (canEdit ? playerRatings.find((r) => r.managerId === user.uid) || null : null),
+    [canEdit, playerRatings, user.uid]
   );
 
   const hasAnyRating = playerRatings.length > 0;
@@ -489,9 +548,16 @@ const SinglePlayerCard: React.FC<SinglePlayerCardProps> = ({
 
         {/* Centered FIFA Nameplate */}
         <div className="mt-3 pt-2.5 border-t border-white/15 text-center space-y-1">
-          <h3 className="font-display text-xl font-bold tracking-tight text-white leading-tight truncate uppercase">
-            {player.firstName} {player.lastName}
-          </h3>
+          <div className="flex items-center justify-center gap-2 min-w-0">
+            <h3 className="font-display text-xl font-bold tracking-tight text-white leading-tight truncate uppercase">
+              {player.firstName} {player.lastName}
+            </h3>
+            {player.uid === user.uid && (
+              <span className="px-1.5 py-0.5 rounded bg-emerald-400/20 border border-emerald-300/40 text-[10px] font-mono-tabular font-bold uppercase tracking-wider text-emerald-200 shrink-0">
+                You
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[11px] text-slate-300 font-mono-tabular">
             <span>Age {player.age}</span>
             <span aria-hidden="true" className="text-slate-500">·</span>
@@ -525,211 +591,286 @@ const SinglePlayerCard: React.FC<SinglePlayerCardProps> = ({
 
       {/* Compact Lower FIFA Card Body */}
       <div className="p-4 space-y-3.5">
-        {/* Separate Overall Rating Control (Not part of Hexagon Radar) */}
-        <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              Overall Score
-            </span>
-            {radarMean !== null && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOverallStr(String(radarMean));
-                  setCardError(null);
-                }}
-                title="Set Overall to average of the 6 radar factors"
-                className="text-[10px] font-mono-tabular font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
-              >
-                Use avg ({radarMean})
-              </button>
-            )}
-          </div>
-          <CompactStatSlider
-            id={`overall-input-${player.uid}`}
-            label="Overall"
-            shortLabel="OVR"
-            valueStr={overallStr}
-            numericValue={numericOverall}
-            thresholds={skillArrowThresholds}
-            onValueChange={(next) => {
-              setOverallStr(next);
-              setCardError(null);
-            }}
-            ariaLabel={`Overall rating slider for ${player.firstName} ${player.lastName}`}
-            prominent={true}
-          />
-        </div>
-
-        {/* 6 Hexagon Radar Factor Sliders (2-Column Grid) */}
-        <div className="grid grid-cols-2 gap-x-3.5 gap-y-2.5">
-          {RADAR_STAT_KEYS.map((key) => {
-            const meta = RADAR_STAT_META[key];
-            return (
-              <CompactStatSlider
-                key={key}
-                id={`${key}-input-${player.uid}`}
-                label={meta.label}
-                shortLabel={meta.short}
-                valueStr={radarStrs[key]}
-                numericValue={numericRadar[key]}
-                thresholds={skillArrowThresholds}
-                onValueChange={(next) => {
-                  setRadarStrs((prev) => ({ ...prev, [key]: next }));
-                  setCardError(null);
-                }}
-                ariaLabel={`${meta.label} slider for ${player.firstName} ${player.lastName}`}
-              />
-            );
-          })}
-        </div>
-
-        {/* Clickable Position Buttons + Inline Alternative Picker + Reset */}
-        <div className="pt-3 border-t border-slate-100 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-semibold text-slate-600">
-              Positions
-              {originalPositions.length > 0 && (
-                <span className="ml-1.5 font-mono-tabular font-normal text-slate-400">
-                  ({originalPositions.join('/')})
+        {canEdit ? (
+          <>
+            {/* Separate Overall Rating Control (Not part of Hexagon Radar) */}
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Overall Score
                 </span>
-              )}
-            </span>
-            <button
-              type="button"
-              onClick={handleResetPositions}
-              disabled={!isPositionsModified}
-              title="Reset to player's original positions"
-              className="px-2 py-0.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 inline-flex items-center gap-1 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <RotateCcw className="w-3 h-3" />
-              Reset
-            </button>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            {(
-              [
-                { slot: 1 as const, label: '1st', value: pos1 },
-                { slot: 2 as const, label: '2nd', value: pos2 },
-                { slot: 3 as const, label: '3rd', value: pos3 },
-              ] as const
-            ).map((item) => {
-              const isOpen = activePosSlot === item.slot;
-              return (
-                <button
-                  key={item.slot}
-                  type="button"
-                  onClick={() => setActivePosSlot(isOpen ? null : item.slot)}
-                  aria-expanded={isOpen}
-                  className={`py-1.5 px-2 rounded-lg border text-center transition-colors flex flex-col items-center justify-center gap-0.5 ${
-                    isOpen
-                      ? 'bg-emerald-50 border-emerald-600 ring-1 ring-emerald-500 text-emerald-900'
-                      : item.value
-                        ? 'bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-900'
-                        : 'bg-white border-dashed border-slate-300 hover:border-slate-400 text-slate-400'
-                  }`}
-                >
-                  <span className="text-[10px] font-medium text-slate-500 leading-none">
-                    {item.label}
-                  </span>
-                  <span className="font-mono-tabular text-xs font-bold leading-tight">
-                    {item.value || '—'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {activePosSlot !== null && (
-            <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold text-slate-600">
-                  Select {activePosSlot === 1 ? '1st' : activePosSlot === 2 ? '2nd' : '3rd'} Position
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setActivePosSlot(null)}
-                  aria-label="Close position picker"
-                  className="text-slate-400 hover:text-slate-700 p-0.5"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-              <div className="grid grid-cols-5 gap-1">
-                {activePosSlot !== 1 && (
+                {radarMean !== null && (
                   <button
                     type="button"
-                    onClick={() => applySlotPosition(activePosSlot, '')}
-                    className={`py-1 rounded text-[11px] font-semibold border transition-colors ${
-                      (activePosSlot === 2 ? pos2 : pos3) === ''
-                        ? 'bg-slate-900 border-slate-900 text-white'
-                        : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
-                    }`}
+                    onClick={() => {
+                      setOverallStr(String(radarMean));
+                      setCardError(null);
+                    }}
+                    title="Set Overall to average of the 6 radar factors"
+                    className="text-[10px] font-mono-tabular font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
                   >
-                    None
+                    Use avg ({radarMean})
                   </button>
                 )}
-                {SOCCER_POSITIONS.map((p) => {
-                  const currentVal = activePosSlot === 1 ? pos1 : activePosSlot === 2 ? pos2 : pos3;
-                  const isChosen = currentVal === p;
+              </div>
+              <CompactStatSlider
+                id={`overall-input-${player.uid}`}
+                label="Overall"
+                shortLabel="OVR"
+                valueStr={overallStr}
+                numericValue={numericOverall}
+                thresholds={skillArrowThresholds}
+                onValueChange={(next) => {
+                  setOverallStr(next);
+                  setCardError(null);
+                }}
+                ariaLabel={`Overall rating slider for ${player.firstName} ${player.lastName}`}
+                prominent={true}
+              />
+            </div>
+
+            {/* 6 Hexagon Radar Factor Sliders (2-Column Grid) */}
+            <div className="grid grid-cols-2 gap-x-3.5 gap-y-2.5">
+              {RADAR_STAT_KEYS.map((key) => {
+                const meta = RADAR_STAT_META[key];
+                return (
+                  <CompactStatSlider
+                    key={key}
+                    id={`${key}-input-${player.uid}`}
+                    label={meta.label}
+                    shortLabel={meta.short}
+                    valueStr={radarStrs[key]}
+                    numericValue={numericRadar[key]}
+                    thresholds={skillArrowThresholds}
+                    onValueChange={(next) => {
+                      setRadarStrs((prev) => ({ ...prev, [key]: next }));
+                      setCardError(null);
+                    }}
+                    ariaLabel={`${meta.label} slider for ${player.firstName} ${player.lastName}`}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Clickable Position Buttons + Inline Alternative Picker + Reset */}
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-600">
+                  Positions
+                  {originalPositions.length > 0 && (
+                    <span className="ml-1.5 font-mono-tabular font-normal text-slate-400">
+                      ({originalPositions.join('/')})
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetPositions}
+                  disabled={!isPositionsModified}
+                  title="Reset to player's original positions"
+                  className="px-2 py-0.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 inline-flex items-center gap-1 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { slot: 1 as const, label: '1st', value: pos1 },
+                    { slot: 2 as const, label: '2nd', value: pos2 },
+                    { slot: 3 as const, label: '3rd', value: pos3 },
+                  ] as const
+                ).map((item) => {
+                  const isOpen = activePosSlot === item.slot;
                   return (
                     <button
-                      key={p}
+                      key={item.slot}
                       type="button"
-                      title={POSITION_LABELS[p]}
-                      onClick={() => applySlotPosition(activePosSlot, p)}
-                      className={`py-1 rounded text-[11px] font-mono-tabular font-bold border transition-colors ${
-                        isChosen
-                          ? 'bg-emerald-700 border-emerald-700 text-white'
-                          : 'bg-white border-slate-200 text-slate-800 hover:border-emerald-500 hover:text-emerald-800'
+                      onClick={() => setActivePosSlot(isOpen ? null : item.slot)}
+                      aria-expanded={isOpen}
+                      className={`py-1.5 px-2 rounded-lg border text-center transition-colors flex flex-col items-center justify-center gap-0.5 ${
+                        isOpen
+                          ? 'bg-emerald-50 border-emerald-600 ring-1 ring-emerald-500 text-emerald-900'
+                          : item.value
+                            ? 'bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-900'
+                            : 'bg-white border-dashed border-slate-300 hover:border-slate-400 text-slate-400'
                       }`}
                     >
-                      {p}
+                      <span className="text-[10px] font-medium text-slate-500 leading-none">
+                        {item.label}
+                      </span>
+                      <span className="font-mono-tabular text-xs font-bold leading-tight">
+                        {item.value || '—'}
+                      </span>
                     </button>
                   );
                 })}
               </div>
+
+              {activePosSlot !== null && (
+                <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold text-slate-600">
+                      Select {activePosSlot === 1 ? '1st' : activePosSlot === 2 ? '2nd' : '3rd'} Position
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActivePosSlot(null)}
+                      aria-label="Close position picker"
+                      className="text-slate-400 hover:text-slate-700 p-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1">
+                    {activePosSlot !== 1 && (
+                      <button
+                        type="button"
+                        onClick={() => applySlotPosition(activePosSlot, '')}
+                        className={`py-1 rounded text-[11px] font-semibold border transition-colors ${
+                          (activePosSlot === 2 ? pos2 : pos3) === ''
+                            ? 'bg-slate-900 border-slate-900 text-white'
+                            : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                        }`}
+                      >
+                        None
+                      </button>
+                    )}
+                    {SOCCER_POSITIONS.map((p) => {
+                      const currentVal = activePosSlot === 1 ? pos1 : activePosSlot === 2 ? pos2 : pos3;
+                      const isChosen = currentVal === p;
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          title={POSITION_LABELS[p]}
+                          onClick={() => applySlotPosition(activePosSlot, p)}
+                          className={`py-1 rounded text-[11px] font-mono-tabular font-bold border transition-colors ${
+                            isChosen
+                              ? 'bg-emerald-700 border-emerald-700 text-white'
+                              : 'bg-white border-slate-200 text-slate-800 hover:border-emerald-500 hover:text-emerald-800'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Inline Feedback */}
-        {cardError && (
-          <div className="p-2 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800">
-            {cardError}
-          </div>
-        )}
-        {savedToast && (
-          <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-            <span>Saved rating.</span>
-          </div>
-        )}
+            {/* Inline Feedback */}
+            {cardError && (
+              <div className="p-2 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800">
+                {cardError}
+              </div>
+            )}
+            {savedToast && (
+              <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Saved rating.</span>
+              </div>
+            )}
 
-        {/* Save Actions */}
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => saveEvaluation(false)}
-            className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 transition-colors"
-          >
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Save
-          </button>
-          {hasNext && (
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => saveEvaluation(true)}
-              className="px-3.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 transition-colors"
-            >
-              <span>Save &amp; Next</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+            {/* Save Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => saveEvaluation(false)}
+                className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 transition-colors"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save
+              </button>
+              {hasNext && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => saveEvaluation(true)}
+                  className="px-3.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 transition-colors"
+                >
+                  <span>Save &amp; Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Read-Only Overall Rating Bar */}
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Overall Score
+                </span>
+                {!hasAnyRating && (
+                  <span className="text-[10px] font-medium text-slate-400">
+                    Not rated yet
+                  </span>
+                )}
+              </div>
+              <ReadOnlyStatBar
+                label="Overall"
+                shortLabel="OVR"
+                numericValue={numericOverall}
+                thresholds={skillArrowThresholds}
+                prominent={true}
+              />
+            </div>
+
+            {/* Read-Only 6 Hexagon Radar Factors */}
+            <div className="grid grid-cols-2 gap-x-3.5 gap-y-2.5">
+              {RADAR_STAT_KEYS.map((key) => {
+                const meta = RADAR_STAT_META[key];
+                return (
+                  <ReadOnlyStatBar
+                    key={key}
+                    label={meta.label}
+                    shortLabel={meta.short}
+                    numericValue={numericRadar[key]}
+                    thresholds={skillArrowThresholds}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Read-Only Positions */}
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-600">Positions</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { slot: 1 as const, label: '1st', value: pos1 },
+                    { slot: 2 as const, label: '2nd', value: pos2 },
+                    { slot: 3 as const, label: '3rd', value: pos3 },
+                  ] as const
+                ).map((item) => (
+                  <div
+                    key={item.slot}
+                    className={`py-1.5 px-2 rounded-lg border text-center flex flex-col items-center justify-center gap-0.5 ${
+                      item.value
+                        ? 'bg-slate-50 border-slate-200 text-slate-900'
+                        : 'bg-white border-dashed border-slate-200 text-slate-400'
+                    }`}
+                  >
+                    <span className="text-[10px] font-medium text-slate-500 leading-none">
+                      {item.label}
+                    </span>
+                    <span className="font-mono-tabular text-xs font-bold leading-tight">
+                      {item.value || '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -742,6 +883,7 @@ export const PlayerRatingDeck: React.FC<PlayerRatingDeckProps> = ({
   ratings,
   completedMatches,
   skillArrowThresholds,
+  canEdit = true,
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const resolvedSkillThresholds = useMemo(
@@ -753,6 +895,9 @@ export const PlayerRatingDeck: React.FC<PlayerRatingDeckProps> = ({
   const [sortBy, setSortBy] = useState<'lastName' | 'firstName'>('lastName');
   const [letterFilter, setLetterFilter] = useState<string>('ALL');
   const [activeIndex, setActiveIndex] = useState<number>(0);
+  const [pendingFocusUid, setPendingFocusUid] = useState<string | null>(() =>
+    canEdit ? null : user.uid
+  );
   const [direction, setDirection] = useState<1 | -1>(1);
   const [edgeFlash, setEdgeFlash] = useState<'left' | 'right' | null>(null);
 
@@ -831,10 +976,22 @@ export const PlayerRatingDeck: React.FC<PlayerRatingDeckProps> = ({
       });
   }, [players, searchQuery, positionFilter, letterFilter, sortBy, ratingsByPlayerId]);
 
-  // Reset to first card when filters/sort change
+  // Reset to first card when filters/sort change (unless jumping to a specific player)
   useEffect(() => {
-    setActiveIndex(0);
-  }, [searchQuery, positionFilter, letterFilter, sortBy]);
+    if (!pendingFocusUid) {
+      setActiveIndex(0);
+    }
+  }, [searchQuery, positionFilter, letterFilter, sortBy, pendingFocusUid]);
+
+  // Resolve pending focus jump (e.g., "My Card" button or initial own-card focus)
+  useEffect(() => {
+    if (!pendingFocusUid || filteredPlayers.length === 0) return;
+    const idx = filteredPlayers.findIndex((p) => p.uid === pendingFocusUid);
+    if (idx !== -1) {
+      setActiveIndex(idx);
+    }
+    setPendingFocusUid(null);
+  }, [pendingFocusUid, filteredPlayers]);
 
   // Clamp index if player list shrinks
   useEffect(() => {
@@ -842,6 +999,26 @@ export const PlayerRatingDeck: React.FC<PlayerRatingDeckProps> = ({
       setActiveIndex(filteredPlayers.length - 1);
     }
   }, [activeIndex, filteredPlayers.length]);
+
+  const hasMyCard = useMemo(
+    () => players.some((p) => p.uid === user.uid),
+    [players, user.uid]
+  );
+
+  const handleJumpToMyCard = () => {
+    const idxInFiltered = filteredPlayers.findIndex((p) => p.uid === user.uid);
+    if (idxInFiltered !== -1) {
+      if (idxInFiltered !== activeIndex) {
+        setDirection(idxInFiltered > activeIndex ? 1 : -1);
+        setActiveIndex(idxInFiltered);
+      }
+      return;
+    }
+    setSearchQuery('');
+    setPositionFilter('ALL');
+    setLetterFilter('ALL');
+    setPendingFocusUid(user.uid);
+  };
 
   const triggerFlash = useCallback((side: 'left' | 'right') => {
     setEdgeFlash(side);
@@ -909,7 +1086,21 @@ export const PlayerRatingDeck: React.FC<PlayerRatingDeckProps> = ({
       {/* Top Filter & Alphabet Bar */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-slate-900">Player Rating</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-semibold text-slate-900">
+              {canEdit ? 'Player Cards & Ratings' : 'Player Cards'}
+            </h2>
+            {hasMyCard && activePlayer?.uid !== user.uid && (
+              <button
+                type="button"
+                onClick={handleJumpToMyCard}
+                className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-800 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                My Card
+              </button>
+            )}
+          </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Search by Name */}
@@ -1103,6 +1294,7 @@ export const PlayerRatingDeck: React.FC<PlayerRatingDeckProps> = ({
                       totalCount={filteredPlayers.length}
                       hasNext={filteredPlayers.length > 1}
                       skillArrowThresholds={resolvedSkillThresholds}
+                      canEdit={canEdit}
                       onAdvanceNext={goNext}
                     />
                   </motion.div>

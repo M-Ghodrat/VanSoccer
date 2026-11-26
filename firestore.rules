@@ -484,8 +484,8 @@ service cloud.firestore {
     }
 
     match /player_ratings/{ratingId} {
-      allow get: if isValidId(ratingId) && isManager();
-      allow list: if isManager() && resource.data.skill >= 0 && resource.data.skill <= 100;
+      allow get: if isValidId(ratingId) && isVerifiedUser();
+      allow list: if isVerifiedUser() && resource.data.skill >= 0 && resource.data.skill <= 100;
       allow create: if isValidId(ratingId)
         && isVerifiedUser()
         && isManager()

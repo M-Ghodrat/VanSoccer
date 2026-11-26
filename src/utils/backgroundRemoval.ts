@@ -46,7 +46,23 @@ async function withQuietTfliteLogs<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function fetchValidModelBuffer(urls: string[]): Promise<Uint8Array | null> {
+interface VerifiedModelAsset {
+  url: string;
+  buffer: ArrayBuffer;
+}
+
+function isValidMediapipeModelBytes(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 10_000) return false;
+  // Standard TFLite Flatbuffer identifier "TFL3" at bytes 4..7
+  const isTflite =
+    bytes[4] === 0x54 && bytes[5] === 0x46 && bytes[6] === 0x4c && bytes[7] === 0x33;
+  // MediaPipe .task bundle (ZIP archive starting with PK\x03\x04)
+  const isTaskZip =
+    bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+  return isTflite || isTaskZip;
+}
+
+async function fetchValidModelAsset(urls: string[]): Promise<VerifiedModelAsset | null> {
   for (const url of urls) {
     try {
       const resp = await fetch(url);
@@ -56,9 +72,12 @@ async function fetchValidModelBuffer(urls: string[]): Promise<Uint8Array | null>
       if (contentType.includes('text/html') || contentType.includes('application/json')) {
         continue;
       }
-      const buf = await resp.arrayBuffer();
-      if (buf.byteLength < 10_000) continue;
-      return new Uint8Array(buf);
+      const buffer = await resp.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      if (!isValidMediapipeModelBytes(bytes)) {
+        continue;
+      }
+      return { url, buffer };
     } catch {
       // Try next candidate URL
     }
@@ -66,11 +85,65 @@ async function fetchValidModelBuffer(urls: string[]): Promise<Uint8Array | null>
   return null;
 }
 
-async function resolveVisionFileset() {
+async function hasLocalWasmAssets(): Promise<boolean> {
   try {
-    return await FilesetResolver.forVisionTasks(LOCAL_WASM_URL);
+    const [jsResp, wasmResp] = await Promise.all([
+      fetch(`${LOCAL_WASM_URL}/vision_wasm_internal.js`, { method: 'HEAD' }),
+      fetch(`${LOCAL_WASM_URL}/vision_wasm_internal.wasm`, { method: 'HEAD' }),
+    ]);
+    if (!jsResp.ok || !wasmResp.ok) return false;
+    const jsType = (jsResp.headers.get('content-type') || '').toLowerCase();
+    const wasmType = (wasmResp.headers.get('content-type') || '').toLowerCase();
+    if (jsType.includes('text/html') || wasmType.includes('text/html')) {
+      return false;
+    }
+    return true;
   } catch {
-    return await FilesetResolver.forVisionTasks(CDN_WASM_URL);
+    return false;
+  }
+}
+
+async function resolveVisionFileset() {
+  const localReady = await hasLocalWasmAssets();
+  if (localReady) {
+    return FilesetResolver.forVisionTasks(LOCAL_WASM_URL);
+  }
+  return FilesetResolver.forVisionTasks(CDN_WASM_URL);
+}
+
+async function createSegmenterFromAsset(
+  vision: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>,
+  asset: VerifiedModelAsset
+): Promise<ImageSegmenter> {
+  // Always load via modelAssetPath so @mediapipe/tasks-vision writes raw bytes
+  // into Emscripten's virtual FS (/model.dat) rather than inlining them into
+  // the graph protobuf (which fails Flatbuffer validation in tasks-vision 1.2.3).
+  const blobUrl = URL.createObjectURL(
+    new Blob([asset.buffer], { type: 'application/octet-stream' })
+  );
+  try {
+    return await ImageSegmenter.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: blobUrl,
+        delegate: 'CPU',
+      },
+      runningMode: 'IMAGE',
+      outputCategoryMask: false,
+      outputConfidenceMasks: true,
+    });
+  } catch {
+    // Fallback to the verified remote/same-origin URL directly (e.g. if blob: fetch is restricted)
+    return await ImageSegmenter.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: asset.url,
+        delegate: 'CPU',
+      },
+      runningMode: 'IMAGE',
+      outputCategoryMask: false,
+      outputConfidenceMasks: true,
+    });
+  } finally {
+    URL.revokeObjectURL(blobUrl);
   }
 }
 
@@ -79,38 +152,22 @@ async function getImageSegmenter(): Promise<{ segmenter: ImageSegmenter; isMulti
     segmenterPromise = withQuietTfliteLogs(async () => {
       const vision = await resolveVisionFileset();
 
-      const multiclassBuffer = await fetchValidModelBuffer(MULTICLASS_MODEL_CANDIDATES);
-      if (multiclassBuffer) {
+      const multiclassAsset = await fetchValidModelAsset(MULTICLASS_MODEL_CANDIDATES);
+      if (multiclassAsset) {
         try {
-          const multiclass = await ImageSegmenter.createFromOptions(vision, {
-            baseOptions: {
-              modelAssetBuffer: multiclassBuffer,
-              delegate: 'CPU',
-            },
-            runningMode: 'IMAGE',
-            outputCategoryMask: false,
-            outputConfidenceMasks: true,
-          });
+          const multiclass = await createSegmenterFromAsset(vision, multiclassAsset);
           return { segmenter: multiclass, isMulticlass: true };
         } catch {
           // Fall through to lightweight selfie segmenter
         }
       }
 
-      const fallbackBuffer = await fetchValidModelBuffer(SELFIE_FALLBACK_MODEL_CANDIDATES);
-      if (!fallbackBuffer) {
+      const fallbackAsset = await fetchValidModelAsset(SELFIE_FALLBACK_MODEL_CANDIDATES);
+      if (!fallbackAsset) {
         throw new Error('Could not download portrait cutout model. Please check your connection and try again.');
       }
 
-      const fallback = await ImageSegmenter.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetBuffer: fallbackBuffer,
-          delegate: 'CPU',
-        },
-        runningMode: 'IMAGE',
-        outputCategoryMask: false,
-        outputConfidenceMasks: true,
-      });
+      const fallback = await createSegmenterFromAsset(vision, fallbackAsset);
       return { segmenter: fallback, isMulticlass: false };
     }).catch((err) => {
       segmenterPromise = null;

@@ -42,8 +42,11 @@ import {
   computeWeeklyScheduleDates,
   DAY_NAMES,
   DEFAULT_MAX_PLAYERS,
+  formatMatchDateTitle,
+  formatMatchDisplayTitle,
   getIsoWeekKey,
   getMonthKey,
+  isRedundantMatchTitle,
   partitionAttendingVotes,
   syncFormationWithLivePlayerData,
 } from '../utils/clubUtils';
@@ -115,7 +118,7 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
 
   // Match creation form (collapsed behind a single button by default)
   const [showCreatePollForm, setShowCreatePollForm] = useState(false);
-  const [newMatchTitle, setNewMatchTitle] = useState('Vancouver Weekly Drop-In');
+  const [newMatchTitle, setNewMatchTitle] = useState('');
   const [newMatchLocation, setNewMatchLocation] = useState(settings.matchLocation);
   const [newMatchDate, setNewMatchDate] = useState(() =>
     toLocalDateInputValue(computeWeeklyScheduleDates(settings).kickoffIso)
@@ -265,9 +268,9 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
       id: notifId,
       recipientUid: promoted.uid,
       matchId: match.id,
-      matchTitle: match.title.slice(0, 120),
+      matchTitle: formatMatchDisplayTitle(match).slice(0, 120),
       type: 'waitlist_promoted',
-      message: `A spot opened up for ${match.title}! You have been moved off the waiting list into the confirmed lineup.`,
+      message: `A spot opened up for ${formatMatchDisplayTitle(match)}! You have been moved off the waiting list into the confirmed lineup.`,
       read: false,
       createdBy: user.uid,
       createdAt: serverTimestamp(),
@@ -419,7 +422,7 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
 
     if (activeMatch) {
       setError(
-        `An active weekly drop-in poll ("${activeMatch.title}") is already running. Please stop and delete the current poll first before opening a new one.`
+        `An active match poll ("${formatMatchDisplayTitle(activeMatch)}") is already running. Please stop and delete the current poll first before opening a new one.`
       );
       return;
     }
@@ -448,7 +451,7 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
       const batch = writeBatch(db);
       batch.set(doc(db, 'matches', matchId), {
         id: matchId,
-        title: newMatchTitle.trim() || 'Vancouver Weekly Drop-In',
+        title: newMatchTitle.trim() || formatMatchDateTitle(kickoffDate, { includeYear: true }),
         weekKey: getIsoWeekKey(kickoffDate),
         location: newMatchLocation.trim() || settings.matchLocation,
         kickoffIso: kickoffDate.toISOString(),
@@ -486,7 +489,7 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
       setShowManualBuilder(false);
       setShowCreatePollForm(false);
       setNotice(
-        `New weekly drop-in poll opened (confirmed player limit: ${safeMaxPlayers}). All players can now submit their attendance.`
+        `New match poll opened (confirmed player limit: ${safeMaxPlayers}). All players can now submit their attendance.`
       );
     } catch (err) {
       try {
@@ -504,7 +507,7 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
     setError(null);
     setNotice(null);
     setBusy(true);
-    const deletedTitle = activeMatch.title;
+    const deletedTitle = formatMatchDisplayTitle(activeMatch);
     try {
       const batch = writeBatch(db);
       for (const v of votes) {
@@ -516,7 +519,7 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
       setDraftFormation(null);
       setShowManualBuilder(false);
       setShowDeletePollModal(false);
-      setNotice(`Stopped and deleted "${deletedTitle}" along with its poll votes. You can now open a new weekly drop-in poll.`);
+      setNotice(`Stopped and deleted "${deletedTitle}" along with its poll votes. You can now open a new match poll.`);
     } catch (err) {
       try {
         handleFirestoreError(err, OperationType.DELETE, `matches/${activeMatch.id}`);
@@ -548,7 +551,7 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
       setDraftFormation(null);
       setShowManualBuilder(false);
       setNotice(
-        `Match "${activeMatch.title}" closed. You can now log games, goal scorers, late/absent players, and ratings below.`
+        `Match "${formatMatchDisplayTitle(activeMatch)}" closed. You can now log games, goal scorers, late/absent players, and ratings below.`
       );
     } catch (err) {
       try {
@@ -931,7 +934,7 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                   <Plus className="w-4 h-4 text-emerald-700" />
-                  Open Weekly Drop-In Poll
+                  Open Match Poll
                 </h3>
                 <button
                   type="button"
@@ -948,16 +951,11 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
                     <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                     <div className="space-y-1 text-xs">
                       <p className="font-semibold text-sm text-amber-950">
-                        A weekly drop-in poll is already running
+                        A match poll is already running
                       </p>
                       <p className="text-amber-900">
-                        <span className="font-semibold">&ldquo;{activeMatch.title}&rdquo;</span> (
-                        {new Date(activeMatch.kickoffIso).toLocaleDateString('en-CA', {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                        , {votes.length} vote{votes.length === 1 ? '' : 's'}) is currently active. You must stop and delete the current poll before opening a new one.
+                        <span className="font-semibold">&ldquo;{formatMatchDisplayTitle(activeMatch)}&rdquo;</span> (
+                        {votes.length} vote{votes.length === 1 ? '' : 's'}) is currently active. You must stop and delete the current poll before opening a new one.
                       </p>
                     </div>
                   </div>
@@ -983,12 +981,14 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
               ) : (
                 <form onSubmit={handleCreateMatchPoll} className="grid sm:grid-cols-12 gap-4 items-end">
                   <div className="sm:col-span-4">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Match Title</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Match Title <span className="font-normal text-slate-400">(optional)</span>
+                    </label>
                     <input
                       type="text"
-                      required
                       value={newMatchTitle}
                       onChange={(e) => setNewMatchTitle(e.target.value)}
+                      placeholder="Defaults to match date"
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
                     />
                   </div>
@@ -1074,13 +1074,16 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
             <>
               <div className="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 min-w-0">
-                  <h2 className="text-sm font-semibold text-slate-900 truncate">{activeMatch.title}</h2>
+                  <h2 className="text-sm font-semibold text-slate-900 truncate">
+                    {formatMatchDisplayTitle(activeMatch)}
+                  </h2>
                   <span className="text-xs text-slate-500 font-mono-tabular whitespace-nowrap">
-                    {new Date(activeMatch.kickoffIso).toLocaleDateString('en-CA', {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                    })}{' '}
+                    {!isRedundantMatchTitle(activeMatch.title) &&
+                      `${new Date(activeMatch.kickoffIso).toLocaleDateString('en-CA', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                      })} `}
                     {new Date(activeMatch.kickoffIso).toLocaleTimeString('en-CA', {
                       hour: '2-digit',
                       minute: '2-digit',
@@ -1973,18 +1976,18 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
                   id="delete-poll-modal-title"
                   className="text-base font-bold text-slate-900"
                 >
-                  Approve Stop &amp; Delete Drop-In Poll?
+                  Approve Stop &amp; Delete Match Poll?
                 </h3>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  This will permanently stop and delete the current active drop-in poll and clear all recorded attendance votes for it.
+                  This will permanently stop and delete the current active match poll and clear all recorded attendance votes for it.
                 </p>
               </div>
             </div>
 
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-slate-500">Poll Title</span>
-                <span className="font-semibold text-slate-900 text-right">{activeMatch.title}</span>
+                <span className="text-slate-500">Match</span>
+                <span className="font-semibold text-slate-900 text-right">{formatMatchDisplayTitle(activeMatch)}</span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500">Scheduled Date</span>
