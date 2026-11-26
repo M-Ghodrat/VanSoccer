@@ -111,7 +111,11 @@
         },
         "business": {
           "type": "object",
-          "description": "Optional member business details (businessName, category, tagline, phone, website, address, logoUrl, allowPromotion) editable in Profile for club spotlight promotion."
+          "description": "Primary member business details (synced with businesses[0] for backward compatibility)."
+        },
+        "businesses": {
+          "type": "array",
+          "description": "Optional list of up to 5 member businesses (id, businessName, category, tagline, phone, website, address, logoUrl, allowPromotion) editable in Profile for club spotlight promotion."
         },
         "createdAt": {
           "type": "string",
@@ -723,7 +727,7 @@
     },
     "RibbonConfig": {
       "title": "RibbonConfig",
-      "description": "Admin-managed club ribbon bar configuration controlling visibility, moving/static mode, speed, and curated business spotlights, news, and announcements.",
+      "description": "Admin-managed club ribbon bar configuration controlling visibility, moving/static mode, speed, luxury color theme, width/height, auto-rotation, and curated business spotlights, news, and announcements with optional display duration.",
       "type": "object",
       "properties": {
         "enabled": {
@@ -735,11 +739,54 @@
         },
         "speed": {
           "type": "string",
-          "enum": ["slow", "normal", "fast"]
+          "enum": ["slow", "normal", "brisk", "fast"]
+        },
+        "themePreset": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "bgColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "accentColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "textColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "width": {
+          "type": "string",
+          "enum": ["full", "wide", "compact"]
+        },
+        "height": {
+          "type": "string",
+          "enum": ["slim", "standard", "tall"]
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["left", "right"]
+        },
+        "autoRotateSeconds": {
+          "type": "number"
+        },
+        "borderAccent": {
+          "type": "boolean"
+        },
+        "showControls": {
+          "type": "boolean"
         },
         "items": {
           "type": "array",
-          "description": "Up to 20 ordered ribbon items (business, news, or announcement)."
+          "description": "Up to 20 ordered ribbon items (business, news, or announcement) with optional startsAtIso and expiresAtIso display window."
         },
         "updatedBy": {
           "type": "string",

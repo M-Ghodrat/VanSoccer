@@ -14,13 +14,18 @@ import {
   X,
 } from 'lucide-react';
 import {
+  findPlayerBusinessLogo,
+  isRibbonItemLive,
+  isValidHexColor,
   normalizeSafeHttpUrl,
   normalizeSafeImageUrl,
   PlayerProfile,
   RibbonConfig,
+  RibbonHeight,
   RibbonItem,
   RibbonItemType,
   RibbonSpeed,
+  RibbonWidth,
 } from '../types';
 
 interface ClubRibbonProps {
@@ -33,26 +38,22 @@ const TYPE_META: Record<
   RibbonItemType,
   {
     label: string;
-    accentText: string;
     modalAccentText: string;
-    icon: React.ComponentType<{ className?: string }>;
+    icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   }
 > = {
   business: {
     label: 'Business',
-    accentText: 'text-emerald-300',
     modalAccentText: 'text-emerald-700',
     icon: Briefcase,
   },
   news: {
     label: 'News',
-    accentText: 'text-sky-300',
     modalAccentText: 'text-sky-700',
     icon: Newspaper,
   },
   announcement: {
     label: 'Announcement',
-    accentText: 'text-amber-300',
     modalAccentText: 'text-amber-700',
     icon: Megaphone,
   },
@@ -62,6 +63,7 @@ const TYPE_META: Record<
 const SPEED_PX_PER_SEC: Record<RibbonSpeed, number> = {
   slow: 28,
   normal: 64,
+  brisk: 98,
   fast: 132,
 };
 
@@ -69,23 +71,50 @@ function formatDisplayDomain(safeUrl: string): string {
   return safeUrl.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/+$/, '');
 }
 
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.slice(0, 2), 16) || 15;
+  const g = parseInt(clean.slice(2, 4), 16) || 23;
+  const b = parseInt(clean.slice(4, 6), 16) || 42;
+  return { r, g, b };
+}
+
+function isLightHex(hex: string): boolean {
+  const { r, g, b } = hexToRgb(hex);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.62;
+}
+
+function hexWithAlpha(hex: string, alpha: number): string {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export const ClubRibbon: React.FC<ClubRibbonProps> = ({
   config,
   playersById,
   isPreview = false,
 }) => {
-  const activeItems = useMemo(
-    () => (config.items || []).filter((item) => item.active && item.title.trim().length > 0),
-    [config.items]
-  );
-
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [paused, setPaused] = useState(false);
+  const [hoveringStatic, setHoveringStatic] = useState(false);
   const [staticIndex, setStaticIndex] = useState(0);
   const [selectedItem, setSelectedItem] = useState<RibbonItem | null>(null);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [halfTrackWidth, setHalfTrackWidth] = useState<number>(0);
 
   const firstHalfRef = useRef<HTMLDivElement | null>(null);
+
+  // Refresh live clock every 30s so scheduled/expiring ads toggle automatically
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const activeItems = useMemo(
+    () => (config.items || []).filter((item) => isRibbonItemLive(item, nowMs)),
+    [config.items, nowMs]
+  );
 
   // Repeat items enough times per half-track so even 1 ad fills wide screens continuously with zero gap
   const repeatedItems = useMemo(() => {
@@ -106,6 +135,54 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
     }
   }, [activeItems.length, staticIndex]);
 
+  const autoRotateSeconds =
+    typeof config.autoRotateSeconds === 'number' && config.autoRotateSeconds > 0
+      ? config.autoRotateSeconds
+      : 8;
+
+  // Auto-advance static slides on the configured interval
+  useEffect(() => {
+    if (
+      config.mode !== 'static' ||
+      activeItems.length <= 1 ||
+      paused ||
+      hoveringStatic ||
+      selectedItem
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setStaticIndex((i) => (i + 1) % activeItems.length);
+    }, autoRotateSeconds * 1000);
+    return () => window.clearInterval(timer);
+  }, [config.mode, activeItems.length, autoRotateSeconds, paused, hoveringStatic, selectedItem]);
+
+  const width: RibbonWidth = config.width || 'full';
+  const height: RibbonHeight = config.height || 'standard';
+  const direction = config.direction || 'left';
+  const borderAccent = Boolean(config.borderAccent);
+  const showControls = config.showControls !== false;
+
+  const bgColor = isValidHexColor(config.bgColor) ? config.bgColor : '#0F172A';
+  const accentColor = isValidHexColor(config.accentColor) ? config.accentColor : '#10B981';
+  const textColor = isValidHexColor(config.textColor) ? config.textColor : '#F8FAFC';
+
+  const lightSurface = isLightHex(bgColor);
+  const mutedTextColor = hexWithAlpha(textColor, lightSurface ? 0.68 : 0.74);
+  const subtleTextColor = hexWithAlpha(textColor, lightSurface ? 0.52 : 0.56);
+  const dividerColor = hexWithAlpha(textColor, lightSurface ? 0.25 : 0.28);
+  const cardBgColor = lightSurface ? 'rgba(15, 23, 42, 0.045)' : 'rgba(255, 255, 255, 0.075)';
+  const cardBorderColor = borderAccent
+    ? hexWithAlpha(accentColor, lightSurface ? 0.35 : 0.32)
+    : lightSurface
+      ? 'rgba(15, 23, 42, 0.12)'
+      : 'rgba(255, 255, 255, 0.12)';
+  const sectionBorderColor = borderAccent
+    ? hexWithAlpha(accentColor, lightSurface ? 0.45 : 0.4)
+    : lightSurface
+      ? 'rgba(15, 23, 42, 0.12)'
+      : 'rgba(255, 255, 255, 0.1)';
+
   // Measure half-track width accurately so Slow / Normal / Fast maintain exact pixel-per-second speeds
   useLayoutEffect(() => {
     const el = firstHalfRef.current;
@@ -125,17 +202,71 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
       ro.observe(el);
       return () => ro.disconnect();
     }
-  }, [config.mode, config.speed, repeatedItems]);
+  }, [config.mode, config.speed, direction, height, width, repeatedItems]);
 
   if (!config.enabled && !isPreview) {
     return null;
   }
 
+  const isFramed = isPreview || width !== 'full';
+
+  const outerWrapperClass = isPreview
+    ? 'mx-auto transition-all duration-200'
+    : width === 'full'
+      ? 'w-full transition-all duration-200'
+      : 'mx-auto px-3 sm:px-6 pt-3 transition-all duration-200';
+
+  const outerWrapperStyle: React.CSSProperties =
+    width === 'compact'
+      ? isPreview
+        ? { width: '58%', minWidth: 'min(100%, 280px)' }
+        : { width: '100%', maxWidth: '640px' }
+      : width === 'wide'
+        ? isPreview
+          ? { width: '82%', minWidth: 'min(100%, 320px)' }
+          : { width: '100%', maxWidth: '920px' }
+        : { width: '100%' };
+
+  const containerPaddingClass =
+    height === 'slim'
+      ? 'px-3 sm:px-5 py-1.5 min-h-[52px]'
+      : height === 'tall'
+        ? 'px-3 sm:px-6 py-4 sm:py-5 min-h-[124px] sm:min-h-[136px]'
+        : 'px-3 sm:px-6 py-2.5 sm:py-3 min-h-[88px] sm:min-h-[96px]';
+
+  const sectionStyle: React.CSSProperties = {
+    backgroundColor: bgColor,
+    color: textColor,
+    borderTopStyle: borderAccent || isFramed ? 'solid' : 'none',
+    borderTopWidth: borderAccent ? '3px' : isFramed ? '1px' : '0px',
+    borderTopColor: borderAccent ? accentColor : sectionBorderColor,
+    borderBottomStyle: 'solid',
+    borderBottomWidth: '1px',
+    borderBottomColor: borderAccent ? hexWithAlpha(accentColor, 0.35) : sectionBorderColor,
+    borderLeftStyle: isFramed ? 'solid' : 'none',
+    borderLeftWidth: isFramed ? '1px' : '0px',
+    borderLeftColor: sectionBorderColor,
+    borderRightStyle: isFramed ? 'solid' : 'none',
+    borderRightWidth: isFramed ? '1px' : '0px',
+    borderRightColor: sectionBorderColor,
+  };
+
   if (activeItems.length === 0) {
     if (!isPreview) return null;
     return (
-      <div className="w-full bg-slate-900 text-slate-400 border border-slate-800 rounded-xl px-5 min-h-[86px] flex items-center justify-center text-xs">
-        Add an active item to preview the ribbon
+      <div className={outerWrapperClass} style={outerWrapperStyle}>
+        <div
+          style={sectionStyle}
+          className={`w-full rounded-xl overflow-hidden ${containerPaddingClass} flex items-center justify-center gap-2 text-xs`}
+        >
+          <span
+            style={{ backgroundColor: accentColor }}
+            className="w-2 h-2 rounded-full shrink-0"
+          />
+          <span style={{ color: mutedTextColor }}>
+            Add an active, non-expired ad or announcement to preview
+          </span>
+        </div>
       </div>
     );
   }
@@ -150,7 +281,7 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
 
   const resolveMedia = (item: RibbonItem) => {
     const linkedPlayer = item.linkedPlayerUid ? playersById?.get(item.linkedPlayerUid) : undefined;
-    const rawLogo = item.imageUrl || linkedPlayer?.business?.logoUrl || '';
+    const rawLogo = item.imageUrl || findPlayerBusinessLogo(linkedPlayer, item.title);
     const safeLogo = rawLogo ? normalizeSafeImageUrl(rawLogo) : '';
     const hasLogo = Boolean(safeLogo) && !failedImages[`logo_${item.id}`];
 
@@ -196,7 +327,8 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
     if (item.type === 'business' && safeOwnerAvatar) {
       return (
         <div
-          className={`${sizeClass} rounded-lg bg-slate-800 border border-slate-700/80 overflow-hidden shrink-0`}
+          style={{ borderColor: cardBorderColor, backgroundColor: cardBgColor }}
+          className={`${sizeClass} rounded-lg border overflow-hidden shrink-0`}
         >
           <img
             src={safeOwnerAvatar}
@@ -211,9 +343,13 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
 
     return (
       <div
-        className={`${sizeClass} rounded-lg bg-slate-800 border border-slate-700/80 shrink-0 flex items-center justify-center`}
+        style={{ borderColor: cardBorderColor, backgroundColor: cardBgColor }}
+        className={`${sizeClass} rounded-lg border shrink-0 flex items-center justify-center`}
       >
-        <Icon className={`w-5 h-5 sm:w-6 sm:h-6 ${meta.accentText}`} />
+        <Icon
+          className={height === 'slim' ? 'w-4 h-4' : 'w-5 h-5 sm:w-6 sm:h-6'}
+          style={{ color: accentColor } as React.CSSProperties}
+        />
       </div>
     );
   };
@@ -225,7 +361,8 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
 
     return (
       <div
-        className={`flex items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-300 leading-tight ${
+        style={{ color: mutedTextColor }}
+        className={`flex items-center gap-x-2.5 gap-y-0.5 text-[11px] leading-tight ${
           compact ? 'overflow-hidden whitespace-nowrap' : 'flex-wrap'
         }`}
       >
@@ -233,15 +370,16 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
           <a
             href={`tel:${item.phone.replace(/[^\d+]/g, '')}`}
             onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1 font-mono-tabular text-slate-200 hover:text-white shrink-0"
+            style={{ color: textColor }}
+            className="inline-flex items-center gap-1 font-mono-tabular opacity-90 hover:opacity-100 shrink-0"
           >
-            <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+            <Phone className="w-3 h-3 shrink-0" style={{ color: subtleTextColor }} />
             <span>{item.phone}</span>
           </a>
         )}
         {item.address && (
-          <span className="inline-flex items-center gap-1 text-slate-300 truncate min-w-0">
-            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+          <span className="inline-flex items-center gap-1 truncate min-w-0">
+            <MapPin className="w-3 h-3 shrink-0" style={{ color: subtleTextColor }} />
             <span className="truncate">{item.address}</span>
           </span>
         )}
@@ -251,7 +389,8 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1 text-emerald-300 hover:text-emerald-200 hover:underline font-medium truncate min-w-0"
+            style={{ color: accentColor }}
+            className="inline-flex items-center gap-1 hover:underline font-medium truncate min-w-0"
           >
             <Globe className="w-3 h-3 shrink-0" />
             <span className="truncate">{formatDisplayDomain(safeUrl)}</span>
@@ -267,7 +406,7 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
 
     return (
       <>
-        <span aria-hidden="true" className="text-slate-600 shrink-0">
+        <span aria-hidden="true" style={{ color: dividerColor }} className="shrink-0">
           ·
         </span>
         <span className="inline-flex items-center gap-1.5 min-w-0">
@@ -277,10 +416,13 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
               alt={ownerName}
               referrerPolicy="no-referrer"
               onError={() => setFailedImages((prev) => ({ ...prev, [`avatar_${item.id}`]: true }))}
-              className="w-4 h-4 rounded-full object-cover border border-slate-600 shrink-0"
+              style={{ borderColor: cardBorderColor }}
+              className="w-4 h-4 rounded-full object-cover border shrink-0"
             />
           )}
-          <span className="text-slate-300 truncate">{ownerName}</span>
+          <span style={{ color: mutedTextColor }} className="truncate">
+            {ownerName}
+          </span>
         </span>
       </>
     );
@@ -288,6 +430,16 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
 
   const renderMovingCard = (item: RibbonItem, keyStr: string) => {
     const meta = TYPE_META[item.type] || TYPE_META.announcement;
+    const isSlim = height === 'slim';
+    const isTall = height === 'tall';
+
+    const cardSizeClasses = isSlim
+      ? 'gap-2.5 px-3 py-1.5 min-w-[240px] max-w-[380px]'
+      : isTall
+        ? 'gap-4 px-4 py-3 min-w-[340px] max-w-[520px]'
+        : 'gap-3.5 px-3.5 py-2.5 min-w-[300px] max-w-[460px]';
+
+    const thumbClass = isSlim ? 'w-9 h-9' : isTall ? 'w-16 h-16' : 'w-14 h-14';
 
     return (
       <div
@@ -301,35 +453,66 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
             setSelectedItem(item);
           }
         }}
-        className="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/75 text-left transition-colors shrink-0 min-w-[300px] max-w-[460px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+        style={{
+          backgroundColor: cardBgColor,
+          borderColor: cardBorderColor,
+        }}
+        className={`flex items-center rounded-xl border text-left transition-opacity hover:opacity-95 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 ${cardSizeClasses}`}
       >
-        {renderThumbnail(item, meta, 'w-14 h-14')}
+        {renderThumbnail(item, meta, thumbClass)}
 
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-center gap-1.5 text-[11px] leading-none min-w-0">
-            <span className={`font-semibold shrink-0 ${meta.accentText}`}>{meta.label}</span>
-            {item.category && (
-              <>
-                <span aria-hidden="true" className="text-slate-600 shrink-0">
-                  ·
-                </span>
-                <span className="text-slate-400 truncate">{item.category}</span>
-              </>
-            )}
-            {renderOwnerInline(item)}
-          </div>
+        <div className={`min-w-0 flex-1 ${isSlim ? 'space-y-0.5' : 'space-y-1'}`}>
+          {!isSlim && (
+            <div className="flex items-center gap-1.5 text-[11px] leading-none min-w-0">
+              <span style={{ color: accentColor }} className="font-semibold shrink-0">
+                {meta.label}
+              </span>
+              {item.category && (
+                <>
+                  <span aria-hidden="true" style={{ color: dividerColor }} className="shrink-0">
+                    ·
+                  </span>
+                  <span style={{ color: subtleTextColor }} className="truncate">
+                    {item.category}
+                  </span>
+                </>
+              )}
+              {renderOwnerInline(item)}
+            </div>
+          )}
 
           <div className="flex items-baseline gap-2 min-w-0">
-            <span className="text-sm font-bold text-white truncate leading-snug">
+            {isSlim && (
+              <span style={{ color: accentColor }} className="text-[10px] font-semibold shrink-0">
+                {meta.label}
+              </span>
+            )}
+            <span
+              style={{ color: textColor }}
+              className={`font-bold truncate leading-snug ${
+                isTall ? 'text-base' : isSlim ? 'text-xs' : 'text-sm'
+              }`}
+            >
               {item.title}
             </span>
           </div>
 
-          {item.text && (
-            <div className="text-xs text-slate-300 truncate leading-snug">{item.text}</div>
+          {!isSlim && item.text && (
+            <div
+              style={{ color: mutedTextColor }}
+              className={`truncate leading-snug ${isTall ? 'text-sm' : 'text-xs'}`}
+            >
+              {item.text}
+            </div>
           )}
 
-          {renderContactLine(item, true)}
+          {isSlim
+            ? item.text && (
+                <div style={{ color: mutedTextColor }} className="text-[11px] truncate leading-tight">
+                  {item.text}
+                </div>
+              )
+            : renderContactLine(item, true)}
         </div>
       </div>
     );
@@ -339,136 +522,196 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
   const selectedSafeUrl = selectedItem?.website ? normalizeSafeHttpUrl(selectedItem.website) : '';
   const selectedMedia = selectedItem ? resolveMedia(selectedItem) : null;
 
+  const isSlim = height === 'slim';
+  const isTall = height === 'tall';
+  const staticThumbClass = isSlim
+    ? 'w-9 h-9'
+    : isTall
+      ? 'w-16 h-16 sm:w-[72px] sm:h-[72px]'
+      : 'w-14 h-14 sm:w-16 sm:h-16';
+
   return (
     <>
-      <section
-        aria-label="Club Ribbon"
-        className={`w-full bg-slate-900 text-slate-100 border-b border-slate-800 ${
-          isPreview ? 'rounded-xl border overflow-hidden' : ''
-        }`}
-      >
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 min-h-[92px] sm:min-h-[98px] flex items-center justify-between gap-3">
-          {config.mode === 'moving' ? (
-            <>
-              <div
-                className={`club-ribbon-marquee flex-1 min-w-0 overflow-hidden ${
-                  paused ? 'club-ribbon-paused' : ''
-                }`}
-              >
+      <div className={outerWrapperClass} style={outerWrapperStyle}>
+        <section
+          aria-label="Club Ads and Announcements"
+          style={sectionStyle}
+          onMouseEnter={() => setHoveringStatic(true)}
+          onMouseLeave={() => setHoveringStatic(false)}
+          className={`w-full overflow-hidden ${isFramed ? 'rounded-xl shadow-xs' : ''}`}
+        >
+          <div className={`w-full ${containerPaddingClass} flex items-center justify-between gap-3`}>
+            {config.mode === 'moving' ? (
+              <>
                 <div
-                  key={`${config.speed}-${activeItems.length}`}
-                  className="club-ribbon-track"
-                  style={{
-                    animationDuration: `${durationSeconds.toFixed(2)}s`,
-                  }}
+                  className={`club-ribbon-marquee flex-1 min-w-0 overflow-hidden ${
+                    paused ? 'club-ribbon-paused' : ''
+                  }`}
                 >
-                  {[0, 1].map((dupIndex) => (
-                    <div
-                      key={dupIndex}
-                      ref={dupIndex === 0 ? firstHalfRef : undefined}
-                      aria-hidden={dupIndex === 1 || undefined}
-                      className="flex items-center gap-4 pr-4 shrink-0"
-                    >
-                      {repeatedItems.map(({ item, copyIdx }) =>
-                        renderMovingCard(item, `${dupIndex}-${copyIdx}-${item.id}`)
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setPaused((p) => !p)}
-                aria-label={paused ? 'Play ribbon' : 'Pause ribbon'}
-                title={paused ? 'Play' : 'Pause'}
-                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800 hover:border-slate-700 transition-colors shrink-0"
-              >
-                {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-              </button>
-            </>
-          ) : (
-            <>
-              {(() => {
-                const meta = TYPE_META[currentStaticItem.type] || TYPE_META.announcement;
-                return (
                   <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedItem(currentStaticItem)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setSelectedItem(currentStaticItem);
-                      }
+                    key={`${config.mode}-${config.speed}-${direction}-${height}-${width}-${activeItems.length}`}
+                    className={`club-ribbon-track ${
+                      direction === 'right' ? 'club-ribbon-track-reverse' : ''
+                    }`}
+                    style={{
+                      animationDuration: `${durationSeconds.toFixed(2)}s`,
+                      animationDirection: direction === 'right' ? 'reverse' : 'normal',
                     }}
-                    className="flex-1 min-w-0 flex items-center gap-3.5 sm:gap-4 text-left group rounded-lg py-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                   >
-                    {renderThumbnail(currentStaticItem, meta, 'w-14 h-14 sm:w-16 sm:h-16')}
-
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-1.5 text-[11px] leading-none min-w-0 flex-wrap">
-                        <span className={`font-semibold shrink-0 ${meta.accentText}`}>
-                          {meta.label}
-                        </span>
-                        {currentStaticItem.category && (
-                          <>
-                            <span aria-hidden="true" className="text-slate-600 shrink-0">
-                              ·
-                            </span>
-                            <span className="text-slate-400 truncate">
-                              {currentStaticItem.category}
-                            </span>
-                          </>
+                    {[0, 1].map((dupIndex) => (
+                      <div
+                        key={dupIndex}
+                        ref={dupIndex === 0 ? firstHalfRef : undefined}
+                        aria-hidden={dupIndex === 1 || undefined}
+                        className="flex items-center gap-4 pr-4 shrink-0"
+                      >
+                        {repeatedItems.map(({ item, copyIdx }) =>
+                          renderMovingCard(item, `${dupIndex}-${copyIdx}-${item.id}`)
                         )}
-                        {renderOwnerInline(currentStaticItem)}
                       </div>
-
-                      <div className="text-sm sm:text-base font-bold text-white group-hover:underline truncate leading-snug">
-                        {currentStaticItem.title}
-                      </div>
-
-                      {currentStaticItem.text && (
-                        <div className="text-xs sm:text-sm text-slate-300 line-clamp-1 leading-snug">
-                          {currentStaticItem.text}
-                        </div>
-                      )}
-
-                      {renderContactLine(currentStaticItem, false)}
-                    </div>
+                    ))}
                   </div>
-                );
-              })()}
-
-              {activeItems.length > 1 && (
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-xs font-mono-tabular text-slate-400 mr-1 hidden sm:inline">
-                    {safeStaticIdx + 1}/{activeItems.length}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setStaticIndex((i) => (i - 1 + activeItems.length) % activeItems.length)
-                    }
-                    aria-label="Previous ribbon item"
-                    className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStaticIndex((i) => (i + 1) % activeItems.length)}
-                    aria-label="Next ribbon item"
-                    className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      </section>
+
+                {showControls && (
+                  <button
+                    type="button"
+                    onClick={() => setPaused((p) => !p)}
+                    aria-label={paused ? 'Play ribbon' : 'Pause ribbon'}
+                    title={paused ? 'Play' : 'Pause'}
+                    style={{
+                      color: mutedTextColor,
+                      borderColor: cardBorderColor,
+                      backgroundColor: cardBgColor,
+                    }}
+                    className="p-2 rounded-lg border hover:opacity-90 transition-opacity shrink-0"
+                  >
+                    {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {(() => {
+                  const meta = TYPE_META[currentStaticItem.type] || TYPE_META.announcement;
+                  return (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedItem(currentStaticItem)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedItem(currentStaticItem);
+                        }
+                      }}
+                      className="flex-1 min-w-0 flex items-center gap-3.5 sm:gap-4 text-left group rounded-lg py-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2"
+                    >
+                      {renderThumbnail(currentStaticItem, meta, staticThumbClass)}
+
+                      <div className={`min-w-0 flex-1 ${isSlim ? 'space-y-0.5' : 'space-y-1'}`}>
+                        {!isSlim && (
+                          <div className="flex items-center gap-1.5 text-[11px] leading-none min-w-0 flex-wrap">
+                            <span style={{ color: accentColor }} className="font-semibold shrink-0">
+                              {meta.label}
+                            </span>
+                            {currentStaticItem.category && (
+                              <>
+                                <span
+                                  aria-hidden="true"
+                                  style={{ color: dividerColor }}
+                                  className="shrink-0"
+                                >
+                                  ·
+                                </span>
+                                <span style={{ color: subtleTextColor }} className="truncate">
+                                  {currentStaticItem.category}
+                                </span>
+                              </>
+                            )}
+                            {renderOwnerInline(currentStaticItem)}
+                          </div>
+                        )}
+
+                        <div className="flex items-baseline gap-2 min-w-0">
+                          {isSlim && (
+                            <span
+                              style={{ color: accentColor }}
+                              className="text-[10px] font-semibold shrink-0"
+                            >
+                              {meta.label}
+                            </span>
+                          )}
+                          <span
+                            style={{ color: textColor }}
+                            className={`font-bold group-hover:underline truncate leading-snug ${
+                              isTall
+                                ? 'text-base sm:text-lg'
+                                : isSlim
+                                  ? 'text-xs sm:text-sm'
+                                  : 'text-sm sm:text-base'
+                            }`}
+                          >
+                            {currentStaticItem.title}
+                          </span>
+                        </div>
+
+                        {currentStaticItem.text && (
+                          <div
+                            style={{ color: mutedTextColor }}
+                            className={`line-clamp-1 leading-snug ${
+                              isTall
+                                ? 'text-sm'
+                                : isSlim
+                                  ? 'text-[11px]'
+                                  : 'text-xs sm:text-sm'
+                            }`}
+                          >
+                            {currentStaticItem.text}
+                          </div>
+                        )}
+
+                        {!isSlim && renderContactLine(currentStaticItem, false)}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {showControls && activeItems.length > 1 && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span
+                      style={{ color: subtleTextColor }}
+                      className="text-xs font-mono-tabular mr-1 hidden sm:inline"
+                    >
+                      {safeStaticIdx + 1}/{activeItems.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setStaticIndex((i) => (i - 1 + activeItems.length) % activeItems.length)
+                      }
+                      aria-label="Previous ribbon item"
+                      style={{ color: mutedTextColor }}
+                      className="p-2 rounded-lg hover:opacity-80 transition-opacity"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStaticIndex((i) => (i + 1) % activeItems.length)}
+                      aria-label="Next ribbon item"
+                      style={{ color: mutedTextColor }}
+                      className="p-2 rounded-lg hover:opacity-80 transition-opacity"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </section>
+      </div>
 
       {/* Detail Modal on Click */}
       {selectedItem && selectedMeta && selectedMedia && (

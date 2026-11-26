@@ -5,6 +5,7 @@ import { Camera, Check, Crop, Phone, Shield, Trash2, Upload, User as UserIcon, U
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import {
   DropInMatch,
+  getPlayerBusinesses,
   PlayerPhotoSubmission,
   PlayerPrivateInfo,
   PlayerProfile,
@@ -722,16 +723,26 @@ export const AdminHub: React.FC<AdminHubProps> = ({
                       </td>
                       <td className="py-3 px-4 text-slate-600">{priv?.email || '—'}</td>
                       <td className="py-3 px-4 text-slate-700">
-                        {p.business?.businessName ? (
-                          <div>
-                            <div className="font-semibold text-slate-900">{p.business.businessName}</div>
-                            {p.business.category && (
-                              <div className="text-[11px] text-slate-500">{p.business.category}</div>
-                            )}
-                          </div>
-                        ) : (
-                          '—'
-                        )}
+                        {(() => {
+                          const list = getPlayerBusinesses(p);
+                          if (list.length === 0) return '—';
+                          return (
+                            <div className="space-y-1.5">
+                              {list.map((biz, idx) => (
+                                <div key={biz.id || idx}>
+                                  <div className="font-semibold text-slate-900">
+                                    {biz.businessName}
+                                  </div>
+                                  {biz.category && (
+                                    <div className="text-[11px] text-slate-500">
+                                      {biz.category}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   );

@@ -19,10 +19,13 @@ import {
   BarChart3,
   BellRing,
   BookOpen,
+  Briefcase,
   CalendarCheck,
+  Check,
   CheckCircle2,
   ClipboardList,
   DollarSign,
+  Loader2,
   LogOut,
   Megaphone,
   Menu,
@@ -47,6 +50,7 @@ import {
   DropInMatch,
   EducationPost,
   FinalizedPlayerTeamEntry,
+  getPlayerBusinesses,
   MatchVote,
   PaymentSenderAlias,
   PlayerPhotoSubmission,
@@ -74,6 +78,7 @@ import { EducationView } from './components/EducationView';
 import { AdminHub } from './components/AdminHub';
 import { PaymentsHub } from './components/PaymentsHub';
 import { ClubRibbon } from './components/ClubRibbon';
+import { ClubBrandMark } from './components/ClubBrandMark';
 import { RibbonManager } from './components/RibbonManager';
 import { PlayerRatingDeck } from './components/PlayerRatingDeck';
 import { clearGmailAccessToken } from './utils/gmailAuth';
@@ -96,7 +101,6 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isEmailVerified, setIsEmailVerified] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>('matchday');
-  const [crestError, setCrestError] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const hasSetInitialRoleTabRef = useRef(false);
@@ -111,6 +115,10 @@ export default function App() {
     updatedBy: 'system',
   });
   const [ribbonConfig, setRibbonConfig] = useState<RibbonConfig>(DEFAULT_RIBBON_CONFIG);
+  const [ribbonHasUnsavedChanges, setRibbonHasUnsavedChanges] = useState(false);
+  const [pendingTabTarget, setPendingTabTarget] = useState<AppTab | null>(null);
+  const [applyingBeforeLeave, setApplyingBeforeLeave] = useState(false);
+  const ribbonApplyHandlerRef = useRef<(() => Promise<boolean>) | null>(null);
   const [players, setPlayers] = useState<PlayerProfile[]>([]);
   const [playersLoaded, setPlayersLoaded] = useState(false);
   const autoSeededRef = useRef(false);
@@ -682,7 +690,7 @@ export default function App() {
     { id: 'setting', label: 'Setting', icon: Settings, visible: isManagerOrAdmin, tier: 'manager' },
     { id: 'education', label: 'Education', icon: BookOpen, visible: true, disabled: true, tier: 'player' },
     { id: 'admin', label: 'Admin', icon: Shield, visible: isAdmin, tier: 'admin' },
-    { id: 'ribbon', label: 'Ribbon', icon: Megaphone, visible: isAdmin, tier: 'admin' },
+    { id: 'ribbon', label: 'Ads & Notices', icon: Megaphone, visible: isAdmin, tier: 'admin' },
   ];
 
   const visibleNavItems = navItems.filter((item) => item.visible);
@@ -713,8 +721,45 @@ export default function App() {
 
   const handleSelectTab = (tabId: AppTab) => {
     if (tabId === 'education') return;
+    if (activeTab === 'ribbon' && tabId !== 'ribbon' && ribbonHasUnsavedChanges) {
+      setPendingTabTarget(tabId);
+      setMobileMenuOpen(false);
+      return;
+    }
     setActiveTab(tabId);
     setMobileMenuOpen(false);
+  };
+
+  const handleConfirmApplyAndLeave = async () => {
+    if (!pendingTabTarget) return;
+    const target = pendingTabTarget;
+    if (!ribbonApplyHandlerRef.current) {
+      setRibbonHasUnsavedChanges(false);
+      setPendingTabTarget(null);
+      setActiveTab(target);
+      return;
+    }
+    setApplyingBeforeLeave(true);
+    try {
+      const applied = await ribbonApplyHandlerRef.current();
+      if (applied) {
+        setRibbonHasUnsavedChanges(false);
+        setPendingTabTarget(null);
+        setActiveTab(target);
+      } else {
+        setPendingTabTarget(null);
+      }
+    } finally {
+      setApplyingBeforeLeave(false);
+    }
+  };
+
+  const handleDiscardAndLeave = () => {
+    if (!pendingTabTarget) return;
+    const target = pendingTabTarget;
+    setRibbonHasUnsavedChanges(false);
+    setPendingTabTarget(null);
+    setActiveTab(target);
   };
 
   const getNavButtonClasses = (
@@ -748,6 +793,8 @@ export default function App() {
     ? `${effectiveProfile.firstName[0] || ''}${effectiveProfile.lastName[0] || ''}`.toUpperCase()
     : (user.email?.[0] || 'U').toUpperCase();
 
+  const myBusinesses = getPlayerBusinesses(effectiveProfile);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col md:flex-row">
       {/* Mobile Compact Header (< md) */}
@@ -770,33 +817,15 @@ export default function App() {
             aria-label="Perspolis Vancouver"
             className="flex items-center gap-2 min-w-0"
           >
-            {!crestError ? (
-              effectiveProfile ? (
-                <>
-                  <img
-                    src="/assets/aistudio/perspolis_icon.png"
-                    alt="Perspolis Vancouver"
-                    referrerPolicy="no-referrer"
-                    onError={() => setCrestError(true)}
-                    className="w-7 h-7 object-contain shrink-0"
-                  />
-                  <span className="font-display text-base font-bold tracking-tight text-slate-900 truncate">
-                    {activeNavItem?.label}
-                  </span>
-                </>
-              ) : (
-                <img
-                  src="/assets/aistudio/perspolis_logo.png"
-                  alt="Perspolis Vancouver"
-                  referrerPolicy="no-referrer"
-                  onError={() => setCrestError(true)}
-                  className="h-7 w-auto object-contain shrink-0"
-                />
-              )
+            {effectiveProfile ? (
+              <>
+                <ClubBrandMark showWordmark={false} size="sm" />
+                <span className="font-display text-base font-bold tracking-tight text-slate-900 truncate">
+                  {activeNavItem?.label}
+                </span>
+              </>
             ) : (
-              <span className="w-7 h-7 rounded-md bg-red-700 text-white font-display font-bold text-xs flex items-center justify-center shrink-0">
-                P
-              </span>
+              <ClubBrandMark showWordmark={true} size="sm" />
             )}
           </button>
         </div>
@@ -823,19 +852,7 @@ export default function App() {
           <aside className="relative w-60 max-w-[80vw] bg-white border-r border-slate-200 h-full flex flex-col z-10">
             <div className="h-14 px-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
               <div className="flex items-center min-w-0">
-                {!crestError ? (
-                  <img
-                    src="/assets/aistudio/perspolis_logo.png"
-                    alt="Perspolis Vancouver"
-                    referrerPolicy="no-referrer"
-                    onError={() => setCrestError(true)}
-                    className="h-8 w-auto max-w-[160px] object-contain shrink-0"
-                  />
-                ) : (
-                  <span className="w-7 h-7 rounded-md bg-red-700 text-white font-display font-bold text-xs flex items-center justify-center shrink-0">
-                    P
-                  </span>
-                )}
+                <ClubBrandMark showWordmark={true} size="md" />
               </div>
               <button
                 type="button"
@@ -924,8 +941,25 @@ export default function App() {
                     {userInitials}
                   </span>
                 )}
-                <span className="text-xs font-semibold text-slate-800 truncate">
-                  {effectiveProfile.firstName} {effectiveProfile.lastName}
+                <span className="min-w-0 flex-1 flex flex-col">
+                  <span className="text-xs font-semibold text-slate-800 truncate leading-tight">
+                    {effectiveProfile.firstName} {effectiveProfile.lastName}
+                  </span>
+                  {myBusinesses.length > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 leading-tight mt-0.5 truncate">
+                      <Briefcase className="w-2.5 h-2.5 shrink-0" />
+                      <span className="truncate">
+                        {myBusinesses.length === 1
+                          ? myBusinesses[0].businessName
+                          : `${myBusinesses.length} businesses`}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 leading-tight mt-0.5 truncate">
+                      <AlertTriangle className="w-2.5 h-2.5 shrink-0 text-amber-600" />
+                      <span className="truncate">Business not set</span>
+                    </span>
+                  )}
                 </span>
               </button>
               <button
@@ -961,29 +995,7 @@ export default function App() {
             aria-label="Perspolis Vancouver"
             className="flex items-center min-w-0 text-left"
           >
-            {!crestError ? (
-              sidebarCollapsed ? (
-                <img
-                  src="/assets/aistudio/perspolis_icon.png"
-                  alt="Perspolis Vancouver"
-                  referrerPolicy="no-referrer"
-                  onError={() => setCrestError(true)}
-                  className="w-8 h-8 object-contain shrink-0"
-                />
-              ) : (
-                <img
-                  src="/assets/aistudio/perspolis_logo.png"
-                  alt="Perspolis Vancouver"
-                  referrerPolicy="no-referrer"
-                  onError={() => setCrestError(true)}
-                  className="h-9 w-auto max-w-[152px] object-contain shrink-0"
-                />
-              )
-            ) : (
-              <span className="w-8 h-8 rounded-md bg-red-700 text-white font-display font-bold text-sm flex items-center justify-center shrink-0">
-                P
-              </span>
-            )}
+            <ClubBrandMark showWordmark={!sidebarCollapsed} size="md" />
           </button>
 
           {!sidebarCollapsed && (
@@ -1092,7 +1104,13 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => handleSelectTab('profile')}
-                title={`${effectiveProfile.firstName} ${effectiveProfile.lastName} — Profile`}
+                title={`${effectiveProfile.firstName} ${effectiveProfile.lastName} — ${
+                  myBusinesses.length > 0
+                    ? myBusinesses.length === 1
+                      ? myBusinesses[0].businessName
+                      : `${myBusinesses.length} businesses set`
+                    : 'Business info not set'
+                }`}
                 className={`flex items-center gap-2.5 min-w-0 text-left rounded-lg transition-colors ${
                   activeTab === 'profile'
                     ? 'bg-emerald-50 ring-1 ring-emerald-200'
@@ -1111,8 +1129,25 @@ export default function App() {
                   </span>
                 )}
                 {!sidebarCollapsed && (
-                  <span className="text-xs font-semibold text-slate-800 truncate">
-                    {effectiveProfile.firstName} {effectiveProfile.lastName}
+                  <span className="min-w-0 flex-1 flex flex-col">
+                    <span className="text-xs font-semibold text-slate-800 truncate leading-tight">
+                      {effectiveProfile.firstName} {effectiveProfile.lastName}
+                    </span>
+                    {myBusinesses.length > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 leading-tight mt-0.5 truncate">
+                        <Briefcase className="w-2.5 h-2.5 shrink-0" />
+                        <span className="truncate">
+                          {myBusinesses.length === 1
+                            ? myBusinesses[0].businessName
+                            : `${myBusinesses.length} businesses`}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 leading-tight mt-0.5 truncate">
+                        <AlertTriangle className="w-2.5 h-2.5 shrink-0 text-amber-600" />
+                        <span className="truncate">Business not set</span>
+                      </span>
+                    )}
                   </span>
                 )}
               </button>
@@ -1335,6 +1370,11 @@ export default function App() {
                 user={user}
                 ribbonConfig={ribbonConfig}
                 players={players}
+                onAppliedConfig={setRibbonConfig}
+                onDirtyChange={setRibbonHasUnsavedChanges}
+                registerApplyHandler={(handler) => {
+                  ribbonApplyHandlerRef.current = handler;
+                }}
               />
             )}
 
@@ -1351,6 +1391,91 @@ export default function App() {
         )}
         </main>
       </div>
+
+      {/* Unapplied Ads & Announcements Changes Modal */}
+      {pendingTabTarget !== null && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-ribbon-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[1px]"
+          onClick={() => {
+            if (!applyingBeforeLeave) setPendingTabTarget(null);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white border border-slate-200 shadow-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                </div>
+                <h2
+                  id="unsaved-ribbon-dialog-title"
+                  className="text-sm font-bold text-slate-900"
+                >
+                  Unapplied Changes
+                </h2>
+              </div>
+              <button
+                type="button"
+                disabled={applyingBeforeLeave}
+                onClick={() => setPendingTabTarget(null)}
+                aria-label="Close"
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Your changes in Ads &amp; Announcements have not been applied yet. Would you like
+                to apply them before leaving?
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={applyingBeforeLeave}
+                onClick={() => setPendingTabTarget(null)}
+                className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 disabled:opacity-50"
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                disabled={applyingBeforeLeave}
+                onClick={handleDiscardAndLeave}
+                className="px-3.5 py-2 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-xs font-semibold text-rose-700 disabled:opacity-50"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                disabled={applyingBeforeLeave}
+                onClick={handleConfirmApplyAndLeave}
+                className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-60"
+              >
+                {applyingBeforeLeave ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Applying...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    Apply &amp; Leave
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -80,6 +80,10 @@
   animation: club-ribbon-marquee var(--ribbon-duration, 28s) linear infinite;
 }
 
+.club-ribbon-track-reverse {
+  animation-direction: reverse;
+}
+
 .club-ribbon-marquee:hover .club-ribbon-track,
 .club-ribbon-marquee:focus-within .club-ribbon-track,
 .club-ribbon-paused .club-ribbon-track {

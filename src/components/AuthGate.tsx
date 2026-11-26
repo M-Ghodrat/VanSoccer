@@ -10,6 +10,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { AlertCircle, ArrowRight, CheckCircle2, Mail, RefreshCw, Trash2 } from 'lucide-react';
 import { auth } from '../firebase';
+import { ClubBrandMark } from './ClubBrandMark';
 import { googleSignInWithGmail } from '../utils/gmailAuth';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
@@ -171,7 +172,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [heroImgFailed, setHeroImgFailed] = useState(false);
-  const [crestImgFailed, setCrestImgFailed] = useState(false);
 
   const shouldReduceMotion = useReducedMotion();
 
@@ -380,12 +380,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
           transition={{ duration: 0.45, ease: 'easeOut' }}
           className="relative z-10 flex items-center"
         >
-          <img
-            src="/assets/aistudio/perspolis_icon.png"
-            alt="Perspolis Vancouver"
-            referrerPolicy="no-referrer"
-            className="w-11 h-11 object-contain"
-          />
+          <ClubBrandMark showWordmark={false} size="lg" tone="dark" />
         </motion.div>
 
         {/* Transparent Floating Tactical Pitch Overlay */}
@@ -528,21 +523,13 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
         >
           {/* Official Club Wordmark Logo */}
           <div className="mb-7">
-            {!crestImgFailed ? (
-              <motion.img
-                src="/assets/aistudio/perspolis_logo.png"
-                alt="Perspolis Vancouver"
-                referrerPolicy="no-referrer"
-                onError={() => setCrestImgFailed(true)}
-                className="h-12 sm:h-14 w-auto object-contain will-change-transform"
-                whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
-                transition={{ type: 'spring', stiffness: 360, damping: 22 }}
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-lg bg-red-700 flex items-center justify-center font-display text-xl font-bold text-white shrink-0">
-                P
-              </div>
-            )}
+            <motion.div
+              className="inline-flex will-change-transform"
+              whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
+              transition={{ type: 'spring', stiffness: 360, damping: 22 }}
+            >
+              <ClubBrandMark showWordmark={true} size="lg" tone="light" />
+            </motion.div>
           </div>
 
           <AnimatePresence mode="wait">

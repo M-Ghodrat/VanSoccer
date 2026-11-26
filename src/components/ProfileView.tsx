@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { deleteUser, EmailAuthProvider, reauthenticateWithCredential, User } from 'firebase/auth';
 import { deleteDoc, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 import {
@@ -22,6 +22,8 @@ import {
 import { BOOTSTRAPPED_ADMIN_EMAIL, db, handleFirestoreError, OperationType } from '../firebase';
 import {
   BUSINESS_CATEGORY_SUGGESTIONS,
+  getPlayerBusinesses,
+  MAX_PLAYER_BUSINESSES,
   normalizeSafeHttpUrl,
   normalizeSafeImageUrl,
   PlayerBusinessInfo,
@@ -34,6 +36,28 @@ import {
 import { calculateAgeFromDob } from '../utils/clubUtils';
 import { compressBrandImageFile } from '../utils/imageUpload';
 import { CircularPhotoCropper, CroppedPhotoResult } from './CircularPhotoCropper';
+
+function makeBusinessId(): string {
+  return `biz_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function sanitizeBusinessEntry(biz: PlayerBusinessInfo): PlayerBusinessInfo {
+  const safeId =
+    biz.id && /^[a-zA-Z0-9_-]{1,64}$/.test(biz.id) ? biz.id : makeBusinessId();
+  const safeUrl = biz.website ? normalizeSafeHttpUrl(biz.website) : '';
+  const safeLogo = biz.logoUrl ? normalizeSafeImageUrl(biz.logoUrl) : '';
+  return {
+    id: safeId,
+    businessName: biz.businessName.trim().slice(0, 80),
+    category: (biz.category || '').trim().slice(0, 50),
+    tagline: (biz.tagline || '').trim().slice(0, 160),
+    phone: (biz.phone || '').trim().slice(0, 30),
+    website: safeUrl,
+    address: (biz.address || '').trim().slice(0, 120),
+    logoUrl: safeLogo,
+    allowPromotion: biz.allowPromotion !== false,
+  };
+}
 
 interface ProfileViewProps {
   user: User;
@@ -82,20 +106,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [deletePassword, setDeletePassword] = useState('');
   const [deleting, setDeleting] = useState(false);
 
-  // Optional Business Info (editable in Profile after registration)
-  const [isEditingBusiness, setIsEditingBusiness] = useState(false);
+  // Optional Business Info (supports multiple businesses, editable in Profile after registration)
+  const savedBusinesses = useMemo(() => getPlayerBusinesses(profile), [profile]);
+  const [editingBusinessIndex, setEditingBusinessIndex] = useState<number | 'new' | null>(null);
   const [savingBusiness, setSavingBusiness] = useState(false);
-  const [bizName, setBizName] = useState(profile?.business?.businessName || '');
-  const [bizCategory, setBizCategory] = useState(profile?.business?.category || '');
-  const [bizTagline, setBizTagline] = useState(profile?.business?.tagline || '');
-  const [bizPhone, setBizPhone] = useState(profile?.business?.phone || '');
-  const [bizWebsite, setBizWebsite] = useState(profile?.business?.website || '');
-  const [bizAddress, setBizAddress] = useState(profile?.business?.address || '');
-  const [bizLogoUrl, setBizLogoUrl] = useState(profile?.business?.logoUrl || '');
-  const [uploadingBizLogo, setUploadingBizLogo] = useState(false);
-  const [bizAllowPromotion, setBizAllowPromotion] = useState(
-    profile?.business ? profile.business.allowPromotion : true
-  );
+  const [bizId, setBizId] = useState('');
+  const [bizName, setBizName] = useState('');
+  const [bizCategory, setBizCategory] = useState('');
+  const [bizTagline, setBizTagline] = useState('');
+  const [bizPhone, setBizPhone] = useState('');
+  const [bizWebsite, setBizWebsite] = useState('');
+  const [bizAddress, setBizAddress] = useState('');
+  const [bizLogoUrl, setBizLogoUrl] = useState('');
+  const [uploadingBizLogoKey, setUploadingBizLogoKey] = useState<number | 'form' | null>(null);
+  const [bizAllowPromotion, setBizAllowPromotion] = useState(true);
 
   useEffect(() => {
     if (profile) {
@@ -104,14 +128,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       setPos1(profile.favoritePositions[0] || 'CM');
       setPos2(profile.favoritePositions[1] || 'CDM');
       setPos3(profile.favoritePositions[2] || 'CB');
-      setBizName(profile.business?.businessName || '');
-      setBizCategory(profile.business?.category || '');
-      setBizTagline(profile.business?.tagline || '');
-      setBizPhone(profile.business?.phone || '');
-      setBizWebsite(profile.business?.website || '');
-      setBizAddress(profile.business?.address || '');
-      setBizLogoUrl(profile.business?.logoUrl || '');
-      setBizAllowPromotion(profile.business ? profile.business.allowPromotion : true);
     }
   }, [profile]);
 
@@ -315,48 +331,95 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
+  const openAddBusiness = () => {
+    if (savedBusinesses.length >= MAX_PLAYER_BUSINESSES) {
+      setError(`You can add up to ${MAX_PLAYER_BUSINESSES} businesses.`);
+      return;
+    }
+    setError(null);
+    setSuccessMsg(null);
+    setBizId(makeBusinessId());
+    setBizName('');
+    setBizCategory('');
+    setBizTagline('');
+    setBizPhone('');
+    setBizWebsite('');
+    setBizAddress('');
+    setBizLogoUrl('');
+    setBizAllowPromotion(true);
+    setEditingBusinessIndex('new');
+  };
+
+  const openEditBusiness = (index: number) => {
+    const target = savedBusinesses[index];
+    if (!target) return;
+    setError(null);
+    setSuccessMsg(null);
+    setBizId(target.id || makeBusinessId());
+    setBizName(target.businessName || '');
+    setBizCategory(target.category || '');
+    setBizTagline(target.tagline || '');
+    setBizPhone(target.phone || '');
+    setBizWebsite(target.website || '');
+    setBizAddress(target.address || '');
+    setBizLogoUrl(target.logoUrl || '');
+    setBizAllowPromotion(target.allowPromotion !== false);
+    setEditingBusinessIndex(index);
+  };
+
+  const closeBusinessForm = () => {
+    setEditingBusinessIndex(null);
+    setError(null);
+  };
+
+  const persistBusinesses = async (nextList: PlayerBusinessInfo[]) => {
+    const sanitized = nextList
+      .slice(0, MAX_PLAYER_BUSINESSES)
+      .map(sanitizeBusinessEntry)
+      .filter((b) => b.businessName.length > 0);
+
+    await updateDoc(doc(db, 'players', user.uid), {
+      businesses: sanitized,
+      business: sanitized[0] ?? null,
+      updatedAt: serverTimestamp(),
+    });
+  };
+
   const handleUploadBizLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     setError(null);
-    setUploadingBizLogo(true);
+    setUploadingBizLogoKey('form');
     try {
       const dataUrl = await compressBrandImageFile(file, 220);
       setBizLogoUrl(dataUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not process logo image.');
     } finally {
-      setUploadingBizLogo(false);
+      setUploadingBizLogoKey(null);
     }
   };
 
-  const handleQuickUploadBizLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleQuickUploadBizLogo = async (
+    index: number,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !profile?.business) return;
+    const target = savedBusinesses[index];
+    if (!file || !profile || !target) return;
     setError(null);
     setSuccessMsg(null);
-    setUploadingBizLogo(true);
+    setUploadingBizLogoKey(index);
     try {
       const dataUrl = await compressBrandImageFile(file, 220);
       const safeLogo = normalizeSafeImageUrl(dataUrl);
-      const updatedBusiness: PlayerBusinessInfo = {
-        businessName: profile.business.businessName,
-        category: profile.business.category || '',
-        tagline: profile.business.tagline || '',
-        phone: profile.business.phone || '',
-        website: profile.business.website ? normalizeSafeHttpUrl(profile.business.website) : '',
-        address: profile.business.address || '',
-        logoUrl: safeLogo,
-        allowPromotion: profile.business.allowPromotion,
-      };
-      await updateDoc(doc(db, 'players', user.uid), {
-        business: updatedBusiness,
-        updatedAt: serverTimestamp(),
-      });
-      setBizLogoUrl(safeLogo);
-      setSuccessMsg('Business logo updated.');
+      const nextList = savedBusinesses.map((b, idx) =>
+        idx === index ? { ...b, logoUrl: safeLogo } : b
+      );
+      await persistBusinesses(nextList);
+      setSuccessMsg(`Logo updated for ${target.businessName}.`);
     } catch (err) {
       try {
         handleFirestoreError(err, OperationType.UPDATE, `players/${user.uid}`);
@@ -364,13 +427,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         setError(wrapped instanceof Error ? wrapped.message : 'Could not upload business logo.');
       }
     } finally {
-      setUploadingBizLogo(false);
+      setUploadingBizLogoKey(null);
     }
   };
 
   const handleSaveBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile) return;
+    if (!profile || editingBusinessIndex === null) return;
     setError(null);
     setSuccessMsg(null);
 
@@ -387,26 +450,39 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       return;
     }
 
+    if (editingBusinessIndex === 'new' && savedBusinesses.length >= MAX_PLAYER_BUSINESSES) {
+      setError(`You can add up to ${MAX_PLAYER_BUSINESSES} businesses.`);
+      return;
+    }
+
     const safeLogo = bizLogoUrl ? normalizeSafeImageUrl(bizLogoUrl) : '';
 
     setSavingBusiness(true);
     try {
-      const businessPayload: PlayerBusinessInfo = {
+      const entry: PlayerBusinessInfo = sanitizeBusinessEntry({
+        id: bizId || makeBusinessId(),
         businessName: cleanName,
-        category: bizCategory.trim().slice(0, 50),
-        tagline: bizTagline.trim().slice(0, 160),
-        phone: bizPhone.trim().slice(0, 30),
+        category: bizCategory,
+        tagline: bizTagline,
+        phone: bizPhone,
         website: safeUrl,
-        address: bizAddress.trim().slice(0, 120),
+        address: bizAddress,
         logoUrl: safeLogo,
         allowPromotion: bizAllowPromotion,
-      };
-      await updateDoc(doc(db, 'players', user.uid), {
-        business: businessPayload,
-        updatedAt: serverTimestamp(),
       });
-      setIsEditingBusiness(false);
-      setSuccessMsg('Business information saved.');
+
+      const nextList =
+        editingBusinessIndex === 'new'
+          ? [...savedBusinesses, entry]
+          : savedBusinesses.map((b, idx) => (idx === editingBusinessIndex ? entry : b));
+
+      await persistBusinesses(nextList);
+      setEditingBusinessIndex(null);
+      setSuccessMsg(
+        editingBusinessIndex === 'new'
+          ? `Added "${entry.businessName}".`
+          : `Updated "${entry.businessName}".`
+      );
     } catch (err) {
       try {
         handleFirestoreError(err, OperationType.UPDATE, `players/${user.uid}`);
@@ -418,26 +494,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  const handleClearBusiness = async () => {
-    if (!profile) return;
+  const handleDeleteBusiness = async (index: number) => {
+    const target = savedBusinesses[index];
+    if (!profile || !target) return;
     setError(null);
     setSuccessMsg(null);
     setSavingBusiness(true);
     try {
-      await updateDoc(doc(db, 'players', user.uid), {
-        business: null,
-        updatedAt: serverTimestamp(),
-      });
-      setBizName('');
-      setBizCategory('');
-      setBizTagline('');
-      setBizPhone('');
-      setBizWebsite('');
-      setBizAddress('');
-      setBizLogoUrl('');
-      setBizAllowPromotion(true);
-      setIsEditingBusiness(false);
-      setSuccessMsg('Business information removed.');
+      const nextList = savedBusinesses.filter((_, idx) => idx !== index);
+      await persistBusinesses(nextList);
+      if (editingBusinessIndex === index) {
+        setEditingBusinessIndex(null);
+      } else if (typeof editingBusinessIndex === 'number' && editingBusinessIndex > index) {
+        setEditingBusinessIndex(editingBusinessIndex - 1);
+      }
+      setSuccessMsg(`Removed "${target.businessName}".`);
     } catch (err) {
       try {
         handleFirestoreError(err, OperationType.UPDATE, `players/${user.uid}`);
@@ -871,41 +942,37 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </form>
       )}
 
-      {/* Optional Business Info Section (Available in Profile after registration) */}
+      {/* Optional Business Info Section (Supports multiple businesses in Profile after registration) */}
       {!isOnboarding && profile && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-emerald-700 shrink-0" />
-              <h2 className="text-sm font-semibold text-slate-900">Business</h2>
+              <h2 className="text-sm font-semibold text-slate-900">
+                {savedBusinesses.length > 1 ? 'Businesses' : 'Business'}
+              </h2>
+              {savedBusinesses.length > 0 && (
+                <span className="text-[11px] font-mono-tabular text-slate-400">
+                  {savedBusinesses.length}/{MAX_PLAYER_BUSINESSES}
+                </span>
+              )}
             </div>
 
-            {!isEditingBusiness ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setIsEditingBusiness(true);
-                  setError(null);
-                  setSuccessMsg(null);
-                }}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
-              >
-                {profile.business?.businessName ? (
-                  <>
-                    <Pencil className="w-3.5 h-3.5" />
-                    Edit
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-3.5 h-3.5" />
-                    Add
-                  </>
-                )}
-              </button>
+            {editingBusinessIndex === null ? (
+              savedBusinesses.length < MAX_PLAYER_BUSINESSES && (
+                <button
+                  type="button"
+                  onClick={openAddBusiness}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {savedBusinesses.length > 0 ? 'Add Another' : 'Add Business'}
+                </button>
+              )
             ) : (
               <button
                 type="button"
-                onClick={() => setIsEditingBusiness(false)}
+                onClick={closeBusinessForm}
                 aria-label="Cancel business edit"
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
               >
@@ -914,282 +981,337 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </div>
 
-          {!isEditingBusiness ? (
-            profile.business?.businessName ? (
-              <div className="p-5 space-y-3 text-xs">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-14 h-14 rounded-lg bg-slate-50 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-1">
-                      {profile.business.logoUrl && normalizeSafeImageUrl(profile.business.logoUrl) ? (
-                        <img
-                          src={normalizeSafeImageUrl(profile.business.logoUrl)}
-                          alt={profile.business.businessName}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <ImagePlus className="w-5 h-5 text-slate-400" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-bold text-slate-900">
-                          {profile.business.businessName}
-                        </span>
-                        {profile.business.category && (
-                          <>
-                            <span aria-hidden="true" className="text-slate-300">
-                              ·
-                            </span>
-                            <span className="text-slate-500">{profile.business.category}</span>
-                          </>
-                        )}
-                      </div>
-                      {profile.business.tagline && (
-                        <p className="text-slate-600 mt-0.5">{profile.business.tagline}</p>
-                      )}
-                      <div className="flex flex-wrap items-center gap-3 mt-1.5">
-                        <label className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 cursor-pointer">
-                          <ImagePlus className="w-3.5 h-3.5" />
-                          {uploadingBizLogo
-                            ? 'Uploading...'
-                            : profile.business.logoUrl
-                              ? 'Change Logo'
-                              : 'Upload Logo'}
-                          <input
-                            type="file"
-                            accept="image/*"
-                            disabled={uploadingBizLogo}
-                            onChange={handleQuickUploadBizLogo}
-                            className="hidden"
-                          />
-                        </label>
-                        <span aria-hidden="true" className="text-slate-300">
-                          ·
-                        </span>
-                        <span
-                          className={`font-medium ${
-                            profile.business.allowPromotion ? 'text-emerald-700' : 'text-slate-400'
-                          }`}
-                        >
-                          {profile.business.allowPromotion ? 'Ribbon eligible' : 'Private'}
-                        </span>
-                      </div>
-                    </div>
+          {(() => {
+            const renderBusinessForm = (mode: 'new' | number) => (
+              <form
+                onSubmit={handleSaveBusiness}
+                className="p-5 space-y-4 bg-slate-50/60"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-700">
+                    {mode === 'new' ? 'New Business' : 'Edit Business'}
+                  </span>
+                </div>
+
+                {/* Business Logo / Image Upload */}
+                <div className="flex flex-wrap items-center gap-3 pb-3 border-b border-slate-200/80">
+                  <div className="w-14 h-14 rounded-lg bg-white border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-1">
+                    {bizLogoUrl && normalizeSafeImageUrl(bizLogoUrl) ? (
+                      <img
+                        src={normalizeSafeImageUrl(bizLogoUrl)}
+                        alt="Business logo"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <ImagePlus className="w-5 h-5 text-slate-400" />
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 cursor-pointer transition-colors">
+                      <ImagePlus className="w-3.5 h-3.5 text-emerald-700" />
+                      {uploadingBizLogoKey === 'form'
+                        ? 'Processing...'
+                        : bizLogoUrl
+                          ? 'Change Logo'
+                          : 'Upload Logo'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingBizLogoKey !== null}
+                        onChange={handleUploadBizLogo}
+                        className="hidden"
+                      />
+                    </label>
+                    {bizLogoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setBizLogoUrl('')}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {(profile.business.phone ||
-                  profile.business.website ||
-                  profile.business.address) && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 border-t border-slate-100 text-slate-600">
-                    {profile.business.phone && (
-                      <span className="inline-flex items-center gap-1.5 font-mono-tabular">
-                        <Phone className="w-3.5 h-3.5 text-slate-400" />
-                        {profile.business.phone}
-                      </span>
-                    )}
-                    {profile.business.address && (
-                      <span className="inline-flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                        {profile.business.address}
-                      </span>
-                    )}
-                    {profile.business.website && normalizeSafeHttpUrl(profile.business.website) && (
-                      <a
-                        href={normalizeSafeHttpUrl(profile.business.website)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-emerald-700 hover:underline font-medium"
+                <div className="grid sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Business Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={80}
+                      value={bizName}
+                      onChange={(e) => setBizName(e.target.value)}
+                      placeholder="Business name"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Category
+                    </label>
+                    <input
+                      type="text"
+                      list="business-category-options"
+                      maxLength={50}
+                      value={bizCategory}
+                      onChange={(e) => setBizCategory(e.target.value)}
+                      placeholder="e.g. Real Estate, Auto, Dental"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    />
+                    <datalist id="business-category-options">
+                      {BUSINESS_CATEGORY_SUGGESTIONS.map((cat) => (
+                        <option key={cat} value={cat} />
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Description / Member Offer
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={160}
+                    value={bizTagline}
+                    onChange={(e) => setBizTagline(e.target.value)}
+                    placeholder="Short description or discount for club members"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+
+                <div className="grid sm:grid-cols-3 gap-3.5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Business Phone
+                    </label>
+                    <input
+                      type="tel"
+                      maxLength={30}
+                      value={bizPhone}
+                      onChange={(e) => setBizPhone(e.target.value)}
+                      placeholder="(604) 555-0142"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-mono-tabular focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Website / Social
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={180}
+                      value={bizWebsite}
+                      onChange={(e) => setBizWebsite(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      City / Address
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={120}
+                      value={bizAddress}
+                      onChange={(e) => setBizAddress(e.target.value)}
+                      placeholder="North Vancouver"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={bizAllowPromotion}
+                    onChange={(e) => setBizAllowPromotion(e.target.checked)}
+                    className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                  />
+                  <span>Allow featuring in club ads & announcements</span>
+                </label>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200/80">
+                  <div>
+                    {typeof mode === 'number' && (
+                      <button
+                        type="button"
+                        disabled={savingBusiness}
+                        onClick={() => handleDeleteBusiness(mode)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-700 hover:bg-rose-50 inline-flex items-center gap-1"
                       >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        {profile.business.website.replace(/^https?:\/\//i, '')}
-                      </a>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Remove
+                      </button>
                     )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={closeBusinessForm}
+                      className="px-3.5 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingBusiness || uploadingBizLogoKey !== null}
+                      className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {savingBusiness ? 'Saving...' : mode === 'new' ? 'Add Business' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            );
+
+            return (
+              <div className="divide-y divide-slate-100">
+                {editingBusinessIndex === 'new' && renderBusinessForm('new')}
+
+                {savedBusinesses.length === 0 && editingBusinessIndex === null && (
+                  <div className="px-5 py-4 flex items-center justify-between gap-3 text-xs text-slate-500">
+                    <span>No business info added yet.</span>
                   </div>
                 )}
-              </div>
-            ) : (
-              <div className="px-5 py-4 text-xs text-slate-400">
-                Not added
-              </div>
-            )
-          ) : (
-            <form onSubmit={handleSaveBusiness} className="p-5 space-y-4">
-              {/* Business Logo / Image Upload */}
-              <div className="flex flex-wrap items-center gap-3 pb-3 border-b border-slate-100">
-                <div className="w-14 h-14 rounded-lg bg-slate-50 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-1">
-                  {bizLogoUrl && normalizeSafeImageUrl(bizLogoUrl) ? (
-                    <img
-                      src={normalizeSafeImageUrl(bizLogoUrl)}
-                      alt="Business logo"
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-contain"
-                    />
-                  ) : (
-                    <ImagePlus className="w-5 h-5 text-slate-400" />
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 cursor-pointer transition-colors">
-                    <ImagePlus className="w-3.5 h-3.5 text-emerald-700" />
-                    {uploadingBizLogo ? 'Processing...' : bizLogoUrl ? 'Change Logo' : 'Upload Logo'}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      disabled={uploadingBizLogo}
-                      onChange={handleUploadBizLogo}
-                      className="hidden"
-                    />
-                  </label>
-                  {bizLogoUrl && (
-                    <button
-                      type="button"
-                      onClick={() => setBizLogoUrl('')}
-                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Business Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    maxLength={80}
-                    value={bizName}
-                    onChange={(e) => setBizName(e.target.value)}
-                    placeholder="Business name"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Category
-                  </label>
-                  <input
-                    type="text"
-                    list="business-category-options"
-                    maxLength={50}
-                    value={bizCategory}
-                    onChange={(e) => setBizCategory(e.target.value)}
-                    placeholder="e.g. Real Estate, Auto, Dental"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                  <datalist id="business-category-options">
-                    {BUSINESS_CATEGORY_SUGGESTIONS.map((cat) => (
-                      <option key={cat} value={cat} />
-                    ))}
-                  </datalist>
-                </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Description / Member Offer
-                </label>
-                <input
-                  type="text"
-                  maxLength={160}
-                  value={bizTagline}
-                  onChange={(e) => setBizTagline(e.target.value)}
-                  placeholder="Short description or discount for club members"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                />
+                {savedBusinesses.map((biz, idx) => {
+                  if (editingBusinessIndex === idx) {
+                    return <div key={biz.id || `biz_${idx}`}>{renderBusinessForm(idx)}</div>;
+                  }
+
+                  const safeLogo = biz.logoUrl ? normalizeSafeImageUrl(biz.logoUrl) : '';
+                  const safeWeb = biz.website ? normalizeSafeHttpUrl(biz.website) : '';
+                  const isUploadingThisLogo = uploadingBizLogoKey === idx;
+
+                  return (
+                    <div key={biz.id || `biz_${idx}`} className="p-5 space-y-3 text-xs">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="w-14 h-14 rounded-lg bg-slate-50 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-1">
+                            {safeLogo ? (
+                              <img
+                                src={safeLogo}
+                                alt={biz.businessName}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <ImagePlus className="w-5 h-5 text-slate-400" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-bold text-slate-900">
+                                {biz.businessName}
+                              </span>
+                              {biz.category && (
+                                <>
+                                  <span aria-hidden="true" className="text-slate-300">
+                                    ·
+                                  </span>
+                                  <span className="text-slate-500">{biz.category}</span>
+                                </>
+                              )}
+                            </div>
+                            {biz.tagline && (
+                              <p className="text-slate-600 mt-0.5">{biz.tagline}</p>
+                            )}
+                            <div className="flex flex-wrap items-center gap-3 mt-1.5">
+                              <label className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 cursor-pointer">
+                                <ImagePlus className="w-3.5 h-3.5" />
+                                {isUploadingThisLogo
+                                  ? 'Uploading...'
+                                  : safeLogo
+                                    ? 'Change Logo'
+                                    : 'Upload Logo'}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  disabled={uploadingBizLogoKey !== null}
+                                  onChange={(e) => handleQuickUploadBizLogo(idx, e)}
+                                  className="hidden"
+                                />
+                              </label>
+                              <span aria-hidden="true" className="text-slate-300">
+                                ·
+                              </span>
+                              <span
+                                className={`font-medium ${
+                                  biz.allowPromotion ? 'text-emerald-700' : 'text-slate-400'
+                                }`}
+                              >
+                                {biz.allowPromotion ? 'Featured eligible' : 'Private'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={savingBusiness}
+                            onClick={() => openEditBusiness(idx)}
+                            title="Edit business"
+                            aria-label={`Edit ${biz.businessName}`}
+                            className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingBusiness}
+                            onClick={() => handleDeleteBusiness(idx)}
+                            title="Remove business"
+                            aria-label={`Remove ${biz.businessName}`}
+                            className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-rose-50 hover:border-rose-200 text-slate-500 hover:text-rose-700 transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {(biz.phone || safeWeb || biz.address) && (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 border-t border-slate-100 text-slate-600">
+                          {biz.phone && (
+                            <span className="inline-flex items-center gap-1.5 font-mono-tabular">
+                              <Phone className="w-3.5 h-3.5 text-slate-400" />
+                              {biz.phone}
+                            </span>
+                          )}
+                          {biz.address && (
+                            <span className="inline-flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                              {biz.address}
+                            </span>
+                          )}
+                          {safeWeb && (
+                            <a
+                              href={safeWeb}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-emerald-700 hover:underline font-medium"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              {biz.website.replace(/^https?:\/\//i, '')}
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-
-              <div className="grid sm:grid-cols-3 gap-3.5">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Business Phone
-                  </label>
-                  <input
-                    type="tel"
-                    maxLength={30}
-                    value={bizPhone}
-                    onChange={(e) => setBizPhone(e.target.value)}
-                    placeholder="(604) 555-0142"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono-tabular focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Website / Social
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={180}
-                    value={bizWebsite}
-                    onChange={(e) => setBizWebsite(e.target.value)}
-                    placeholder="https://..."
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    City / Address
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={120}
-                    value={bizAddress}
-                    onChange={(e) => setBizAddress(e.target.value)}
-                    placeholder="North Vancouver"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
-
-              <label className="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={bizAllowPromotion}
-                  onChange={(e) => setBizAllowPromotion(e.target.checked)}
-                  className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
-                />
-                <span>Allow featuring in club ribbon</span>
-              </label>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
-                <div>
-                  {profile.business?.businessName && (
-                    <button
-                      type="button"
-                      disabled={savingBusiness}
-                      onClick={handleClearBusiness}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-700 hover:bg-rose-50 inline-flex items-center gap-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Remove
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingBusiness(false)}
-                    className="px-3.5 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={savingBusiness}
-                    className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-60"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    {savingBusiness ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
+            );
+          })()}
         </div>
       )}
       {/* Interactive Circular Photo Crop & Zoom Modal */}

@@ -390,7 +390,8 @@ export const StaminaPerimeterRing: React.FC<{
   stamina: number | null;
   size?: number;
   variant?: 'pitch' | 'light';
-}> = ({ stamina, size = 56, variant = 'pitch' }) => {
+  label?: string;
+}> = ({ stamina, size = 56, variant = 'pitch', label = 'Stamina' }) => {
   const clamped = stamina === null ? 0 : Math.max(0, Math.min(100, stamina));
   const ratio = clamped / 100;
 
@@ -404,7 +405,7 @@ export const StaminaPerimeterRing: React.FC<{
         height={size}
         viewBox="0 0 48 48"
         className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none"
-        aria-label={stamina === null ? 'Stamina unrated' : `Stamina level ${Math.round(clamped)}%`}
+        aria-label={stamina === null ? `${label} unrated` : `${label} level ${Math.round(clamped)}%`}
       >
         <circle cx="24" cy="24" r={r} fill="none" stroke="#cbd5e1" strokeWidth="3.4" />
         {clamped > 0 && (
@@ -438,7 +439,7 @@ export const StaminaPerimeterRing: React.FC<{
       height={size}
       viewBox="0 0 60 60"
       className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none"
-      aria-label={stamina === null ? 'Stamina unrated' : `Stamina level ${Math.round(clamped)}%`}
+      aria-label={stamina === null ? `${label} unrated` : `${label} level ${Math.round(clamped)}%`}
     >
       {/* Crisp subtle circular track */}
       <circle
@@ -470,7 +471,7 @@ export const StaminaPerimeterRing: React.FC<{
 
 // Pro-grade realistic sculpted soccer jersey shoulders with anatomical collarbone/deltoid contour & refined neck opening (viewBox 0 0 96 36, zero black border)
 const PITCH_SHOULDERS_FRONT_PATH =
-  'M28.2 6.4C33.1 13.8 39.8 17.2 48 17.2C56.2 17.2 62.9 13.8 67.8 6.4C72.6 7.5 77.7 9.4 82.4 12.4C87.3 15.6 91.2 20.2 93.2 26.2C94.1 28.9 94.6 32.1 94.8 35.6H1.2C1.4 32.1 1.9 28.9 2.8 26.2C4.8 20.2 8.7 15.6 13.6 12.4C18.3 9.4 23.4 7.5 28.2 6.4Z';
+  'M28.2 6.4C33.1 13.8 39.8 17.2 48 17.2C56.2 17.2 62.9 13.8 67.8 6.4C73.4 8.2 79.4 10.2 84.5 12.8C87.8 14.6 89.6 17.2 90.6 20.6C92.4 25.2 93.8 30.2 95.0 35.6H1.0C2.2 30.2 3.6 25.2 5.4 20.6C6.4 17.2 8.2 14.6 11.5 12.8C16.6 10.2 22.6 8.2 28.2 6.4Z';
 
 const PITCH_NECK_SKIN_AREA_PATH =
   'M28.2 6.4C33.8 4.4 40.6 3.7 48 3.7C55.4 3.7 62.2 4.4 67.8 6.4C63.8 15.4 56.6 19.6 48 19.6C39.4 19.6 32.2 15.4 28.2 6.4Z';
@@ -621,7 +622,7 @@ export const PlayerKitShouldersSvg: React.FC<{
           <g clipPath={`url(#${clipId})`}>
             {/* Tailored Shoulder Yoke Panel Wrapping Collarbone & Shoulders */}
             <path
-              d="M28.2 6.4C33.1 13.8 39.8 17.2 48 17.2C56.2 17.2 62.9 13.8 67.8 6.4L91 17L82 28C72 22.8 60.5 20.6 48 20.6C35.5 20.6 24 22.8 14 28L5 17L28.2 6.4Z"
+              d="M28.2 6.4C33.1 13.8 39.8 17.2 48 17.2C56.2 17.2 62.9 13.8 67.8 6.4L91 15.2L83 27.2C72.5 22.2 60.8 20.2 48 20.2C35.2 20.2 23.5 22.2 13 27.2L5 15.2L28.2 6.4Z"
               fill={k.yoke}
               opacity="0.52"
             />
@@ -638,8 +639,8 @@ export const PlayerKitShouldersSvg: React.FC<{
             <rect x="73" y="6" width="4" height="30" fill={k.jacquardDark} />
 
             {/* Natural Muscular Deltoid / Outer Sleeve Curvature Shading */}
-            <path d="M0 16C7 18.2 14.2 25 16.8 36H0V16Z" fill={k.sleeveShade} opacity="0.4" />
-            <path d="M96 16C89 18.2 81.8 25 79.2 36H96V16Z" fill={k.sleeveShade} opacity="0.4" />
+            <path d="M0 13C7.2 15.8 13.8 23.2 16.2 36H0V13Z" fill={k.sleeveShade} opacity="0.4" />
+            <path d="M96 13C88.8 15.8 82.2 23.2 79.8 36H96V13Z" fill={k.sleeveShade} opacity="0.4" />
 
             {/* Subtle Natural Fabric Drape Creases near Clavicle & Underarm */}
             <path
@@ -676,33 +677,33 @@ export const PlayerKitShouldersSvg: React.FC<{
 
             {/* Crisp Sunlit Top-Shoulder Rim-Light (Realistic Edge Definition, Zero Black Margin) */}
             <path
-              d="M2.2 28C4.4 21 8.4 15.8 13.6 12.4C18 9.4 22.8 7.5 27.8 6.5M68.2 6.5C73.2 7.5 78 9.4 82.4 12.4C87.6 15.8 91.6 21 93.8 28"
+              d="M4.2 24.2C5.2 20.2 6.8 16.5 9.2 14.2C11.2 12.4 14.2 11.0 18.2 9.5C21.6 8.3 25.0 7.2 28.0 6.5M68.0 6.5C71.0 7.2 74.4 8.3 77.8 9.5C81.8 11.0 84.8 12.4 86.8 14.2C89.2 16.5 90.8 20.2 91.8 24.2"
               stroke={k.rimLight}
               strokeWidth="1.35"
               strokeLinecap="round"
             />
 
-            {/* Curved Raglan Athletic Shoulder Seams (Stitched Shadow + Highlight Pair) */}
+            {/* Curved Athletic Shoulder Seams (Stitched Shadow + Highlight Pair) */}
             <path
-              d="M25.6 8.2C21.6 16.4 18.4 25.6 16.8 35.8"
+              d="M24.8 8.0C20.4 16.2 17.2 25.5 15.8 35.8"
               stroke={k.seamShadow}
               strokeWidth="1.65"
               strokeLinecap="round"
             />
             <path
-              d="M26.9 8.7C22.9 16.8 19.7 25.9 18.1 35.8"
+              d="M26.1 8.4C21.7 16.6 18.5 25.8 17.1 35.8"
               stroke={k.seamHighlight}
               strokeWidth="0.95"
               strokeLinecap="round"
             />
             <path
-              d="M70.4 8.2C74.4 16.4 77.6 25.6 79.2 35.8"
+              d="M71.2 8.0C75.6 16.2 78.8 25.5 80.2 35.8"
               stroke={k.seamShadow}
               strokeWidth="1.65"
               strokeLinecap="round"
             />
             <path
-              d="M69.1 8.7C73.1 16.8 76.3 25.9 77.9 35.8"
+              d="M69.9 8.4C74.3 16.6 77.5 25.8 78.9 35.8"
               stroke={k.seamHighlight}
               strokeWidth="0.95"
               strokeLinecap="round"
@@ -710,39 +711,39 @@ export const PlayerKitShouldersSvg: React.FC<{
 
             {/* Pro 3-Stripe Perspective-Curved Athletic Shoulder Tape */}
             <path
-              d="M24.2 7.8C17.4 10.6 11.2 15.4 6.1 22.4"
+              d="M25.0 7.7C18.2 9.8 12.0 12.6 6.8 17.8"
               stroke={k.shoulderStripe}
               strokeWidth="1.75"
               strokeLinecap="round"
             />
             <path
-              d="M22.2 10.6C15.8 13.5 9.8 18.2 4.8 25.4"
+              d="M23.2 10.5C16.6 12.6 10.6 15.6 5.6 21.0"
               stroke={k.shoulderStripe}
               strokeWidth="1.45"
               strokeLinecap="round"
               opacity="0.88"
             />
             <path
-              d="M20.2 13.5C14.1 16.5 8.5 21.1 3.9 28.4"
+              d="M21.4 13.3C15.1 15.5 9.3 18.5 4.4 24.2"
               stroke={k.shoulderStripeEdge}
               strokeWidth="1.2"
               strokeLinecap="round"
             />
             <path
-              d="M71.8 7.8C78.6 10.6 84.8 15.4 89.9 22.4"
+              d="M71.0 7.7C77.8 9.8 84.0 12.6 89.2 17.8"
               stroke={k.shoulderStripe}
               strokeWidth="1.75"
               strokeLinecap="round"
             />
             <path
-              d="M73.8 10.6C80.2 13.5 86.2 18.2 91.2 25.4"
+              d="M72.8 10.5C79.4 12.6 85.4 15.6 90.4 21.0"
               stroke={k.shoulderStripe}
               strokeWidth="1.45"
               strokeLinecap="round"
               opacity="0.88"
             />
             <path
-              d="M75.8 13.5C81.9 16.5 87.5 21.1 92.1 28.4"
+              d="M74.6 13.3C80.9 15.5 86.7 18.5 91.6 24.2"
               stroke={k.shoulderStripeEdge}
               strokeWidth="1.2"
               strokeLinecap="round"

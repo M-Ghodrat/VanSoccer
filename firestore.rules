@@ -67,7 +67,8 @@ service cloud.firestore {
     function isValidPlayerBusiness(biz) {
       return biz is map
         && biz.keys().hasAll(['businessName', 'category', 'tagline', 'phone', 'website', 'address', 'allowPromotion'])
-        && biz.keys().hasOnly(['businessName', 'category', 'tagline', 'phone', 'website', 'address', 'logoUrl', 'allowPromotion'])
+        && biz.keys().hasOnly(['id', 'businessName', 'category', 'tagline', 'phone', 'website', 'address', 'logoUrl', 'allowPromotion'])
+        && (!('id' in biz) || (biz.id is string && biz.id.size() >= 1 && biz.id.size() <= 64 && biz.id.matches('^[a-zA-Z0-9_\\-]+$')))
         && biz.businessName is string && biz.businessName.size() <= 80
         && biz.category is string && biz.category.size() <= 50
         && biz.tagline is string && biz.tagline.size() <= 160
@@ -89,7 +90,7 @@ service cloud.firestore {
           'uid', 'firstName', 'lastName', 'age', 'favoritePositions',
           'photoStatus', 'approvedPhotoUrl', 'approvedPitchPhotoUrl',
           'pitchCollarStyle', 'pitchSkinTone', 'role', 'appearances',
-          'business', 'createdAt', 'updatedAt'
+          'business', 'businesses', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.uid)
         && data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 60
@@ -108,6 +109,15 @@ service cloud.firestore {
         && data.role in ['player', 'manager', 'admin']
         && data.appearances is number && data.appearances >= 0 && data.appearances <= 10000
         && (!('business' in data) || data.business == null || isValidPlayerBusiness(data.business))
+        && (!('businesses' in data) || data.businesses == null || (
+          data.businesses is list
+          && data.businesses.size() <= 5
+          && (data.businesses.size() == 0 || isValidPlayerBusiness(data.businesses[0]))
+          && (data.businesses.size() < 2 || isValidPlayerBusiness(data.businesses[1]))
+          && (data.businesses.size() < 3 || isValidPlayerBusiness(data.businesses[2]))
+          && (data.businesses.size() < 4 || isValidPlayerBusiness(data.businesses[3]))
+          && (data.businesses.size() < 5 || isValidPlayerBusiness(data.businesses[4]))
+        ))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -346,23 +356,53 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidRibbonItem(item) {
+      return item is map
+        && item.keys().hasAll(['id', 'type', 'title', 'text', 'active'])
+        && item.keys().hasOnly([
+          'id', 'type', 'title', 'text', 'active', 'imageUrl',
+          'linkedPlayerUid', 'ownerName', 'category', 'phone',
+          'website', 'address', 'startsAtIso', 'expiresAtIso'
+        ])
+        && item.id is string && item.id.size() >= 1 && item.id.size() <= 64
+        && item.type in ['business', 'news', 'announcement']
+        && item.title is string && item.title.size() >= 1 && item.title.size() <= 80
+        && item.text is string && item.text.size() <= 180
+        && item.active is bool
+        && (!('imageUrl' in item) || (item.imageUrl is string && item.imageUrl.size() <= 80000))
+        && (!('linkedPlayerUid' in item) || (item.linkedPlayerUid is string && item.linkedPlayerUid.size() <= 128))
+        && (!('ownerName' in item) || (item.ownerName is string && item.ownerName.size() <= 80))
+        && (!('category' in item) || (item.category is string && item.category.size() <= 50))
+        && (!('phone' in item) || (item.phone is string && item.phone.size() <= 30))
+        && (!('website' in item) || (item.website is string && item.website.size() <= 180))
+        && (!('address' in item) || (item.address is string && item.address.size() <= 120))
+        && (!('startsAtIso' in item) || (item.startsAtIso is string && item.startsAtIso.size() <= 40))
+        && (!('expiresAtIso' in item) || (item.expiresAtIso is string && item.expiresAtIso.size() <= 40));
+    }
+
     function isValidRibbonConfig(data) {
       return data.keys().hasAll(['enabled', 'mode', 'speed', 'items', 'updatedBy', 'updatedAt'])
-        && data.keys().hasOnly(['enabled', 'mode', 'speed', 'items', 'updatedBy', 'updatedAt'])
+        && data.keys().hasOnly([
+          'enabled', 'mode', 'speed', 'items',
+          'themePreset', 'bgColor', 'accentColor', 'textColor',
+          'width', 'height', 'direction', 'autoRotateSeconds',
+          'borderAccent', 'showControls', 'updatedBy', 'updatedAt'
+        ])
         && data.enabled is bool
         && data.mode in ['moving', 'static']
-        && data.speed in ['slow', 'normal', 'fast']
+        && data.speed in ['slow', 'normal', 'brisk', 'fast']
+        && (!('themePreset' in data) || (data.themePreset is string && data.themePreset.size() <= 40))
+        && (!('bgColor' in data) || (data.bgColor is string && data.bgColor.size() == 7 && data.bgColor.matches('^#[0-9a-fA-F]{6}$')))
+        && (!('accentColor' in data) || (data.accentColor is string && data.accentColor.size() == 7 && data.accentColor.matches('^#[0-9a-fA-F]{6}$')))
+        && (!('textColor' in data) || (data.textColor is string && data.textColor.size() == 7 && data.textColor.matches('^#[0-9a-fA-F]{6}$')))
+        && (!('width' in data) || data.width in ['full', 'wide', 'compact'])
+        && (!('height' in data) || data.height in ['slim', 'standard', 'tall'])
+        && (!('direction' in data) || data.direction in ['left', 'right'])
+        && (!('autoRotateSeconds' in data) || (data.autoRotateSeconds is number && data.autoRotateSeconds >= 0 && data.autoRotateSeconds <= 120))
+        && (!('borderAccent' in data) || data.borderAccent is bool)
+        && (!('showControls' in data) || data.showControls is bool)
         && data.items is list && data.items.size() <= 20
-        && (data.items.size() == 0 || (
-          data.items[0] is map
-          && data.items[0].keys().hasAll(['id', 'type', 'title', 'text', 'active'])
-          && data.items[0].id is string && data.items[0].id.size() >= 1 && data.items[0].id.size() <= 64
-          && data.items[0].type in ['business', 'news', 'announcement']
-          && data.items[0].title is string && data.items[0].title.size() >= 1 && data.items[0].title.size() <= 80
-          && data.items[0].text is string && data.items[0].text.size() <= 180
-          && (!('imageUrl' in data.items[0]) || (data.items[0].imageUrl is string && data.items[0].imageUrl.size() <= 80000))
-          && data.items[0].active is bool
-        ))
+        && (data.items.size() == 0 || isValidRibbonItem(data.items[0]))
         && isValidId(data.updatedBy)
         && data.updatedAt is timestamp;
     }
@@ -423,7 +463,7 @@ service cloud.firestore {
           isAdmin() ||
           (
             isOwner(uid)
-            && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'age', 'favoritePositions', 'photoStatus', 'business', 'updatedAt'])
+            && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'age', 'favoritePositions', 'photoStatus', 'business', 'businesses', 'updatedAt'])
             && incoming().role == existing().role
             && incoming().approvedPhotoUrl == existing().approvedPhotoUrl
             && incoming().appearances == existing().appearances

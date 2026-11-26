@@ -523,9 +523,9 @@ const SinglePlayerCard: React.FC<SinglePlayerCardProps> = ({
           <div className="flex-1 flex justify-center">
             <div
               className="relative w-24 h-24 flex items-center justify-center shrink-0"
-              title={`Overall: ${numericOverall !== null ? numericOverall : 'Unrated'} · Stamina: ${numericRadar.stamina !== null ? numericRadar.stamina : 'Unrated'}`}
+              title={`Overall: ${numericOverall !== null ? numericOverall : 'Unrated'} · Speed: ${numericRadar.speed !== null ? numericRadar.speed : 'Unrated'}`}
             >
-              <StaminaPerimeterRing stamina={numericRadar.stamina} size={96} variant="pitch" />
+              <StaminaPerimeterRing stamina={numericRadar.speed} size={96} variant="pitch" label="Speed" />
 
               {player.approvedPhotoUrl && !imgFailed ? (
                 <img

@@ -597,7 +597,7 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
                 />
                 {/* Subtle dashed shoulder slope boundary */}
                 <path
-                  d="M1.4 35.6C1.6 32.1 2.1 28.9 3 26.2C5 20.2 8.8 15.5 13.6 12.2C18 9.2 22.8 7.3 27.2 6.2M68.8 6.2C73.2 7.3 78 9.2 82.4 12.2C87.2 15.5 91 20.2 93 26.2C93.9 28.9 94.4 32.1 94.6 35.6"
+                  d="M1.2 35.6C2.4 30.2 3.8 25.2 5.6 20.6C6.6 17.2 8.4 14.6 11.7 12.8C16.8 10.2 22.6 8.2 27.8 6.4M68.2 6.4C73.4 8.2 79.2 10.2 84.3 12.8C87.6 14.6 89.4 17.2 90.4 20.6C92.2 25.2 93.6 30.2 94.8 35.6"
                   stroke="#ffffff"
                   strokeOpacity="0.62"
                   strokeWidth="1"

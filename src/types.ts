@@ -108,7 +108,10 @@ export function getTeamColorPalette(color: string | undefined, fallbackIdx = 0):
 
 export type PitchCollarStyle = 'crew' | 'polo' | 'high';
 
+export const MAX_PLAYER_BUSINESSES = 5;
+
 export interface PlayerBusinessInfo {
+  id?: string;
   businessName: string;
   category: string;
   tagline: string;
@@ -177,8 +180,39 @@ export interface PlayerProfile {
   role: UserRole;
   appearances: number;
   business?: PlayerBusinessInfo | null;
+  businesses?: PlayerBusinessInfo[];
   createdAt?: unknown;
   updatedAt?: unknown;
+}
+
+export function getPlayerBusinesses(
+  profile?: Pick<PlayerProfile, 'business' | 'businesses'> | null
+): PlayerBusinessInfo[] {
+  if (!profile) return [];
+  if (Array.isArray(profile.businesses)) {
+    return profile.businesses
+      .filter((b): b is PlayerBusinessInfo => Boolean(b && typeof b.businessName === 'string' && b.businessName.trim().length > 0))
+      .slice(0, MAX_PLAYER_BUSINESSES);
+  }
+  if (profile.business && typeof profile.business.businessName === 'string' && profile.business.businessName.trim().length > 0) {
+    return [profile.business];
+  }
+  return [];
+}
+
+export function findPlayerBusinessLogo(
+  profile?: Pick<PlayerProfile, 'business' | 'businesses'> | null,
+  businessTitle?: string
+): string {
+  const list = getPlayerBusinesses(profile);
+  if (list.length === 0) return '';
+  if (businessTitle && businessTitle.trim()) {
+    const normalized = businessTitle.trim().toLowerCase();
+    const exact = list.find((b) => b.businessName.trim().toLowerCase() === normalized);
+    if (exact?.logoUrl) return exact.logoUrl;
+  }
+  const firstWithLogo = list.find((b) => Boolean(b.logoUrl));
+  return firstWithLogo?.logoUrl || '';
 }
 
 export interface PlayerPrivateInfo {
@@ -440,7 +474,86 @@ export interface EducationPost {
 
 export type RibbonItemType = 'business' | 'news' | 'announcement';
 export type RibbonMode = 'moving' | 'static';
-export type RibbonSpeed = 'slow' | 'normal' | 'fast';
+export type RibbonSpeed = 'slow' | 'normal' | 'brisk' | 'fast';
+export type RibbonWidth = 'full' | 'wide' | 'compact';
+export type RibbonHeight = 'slim' | 'standard' | 'tall';
+export type RibbonDirection = 'left' | 'right';
+
+export interface RibbonLuxuryPreset {
+  id: string;
+  name: string;
+  bgColor: string;
+  accentColor: string;
+  textColor: string;
+  borderAccent: boolean;
+}
+
+export const RIBBON_LUXURY_PRESETS: RibbonLuxuryPreset[] = [
+  {
+    id: 'obsidian_pitch',
+    name: 'Obsidian Pitch',
+    bgColor: '#0F172A',
+    accentColor: '#10B981',
+    textColor: '#F8FAFC',
+    borderAccent: false,
+  },
+  {
+    id: 'imperial_crimson',
+    name: 'Imperial Crimson & Gold',
+    bgColor: '#450A0A',
+    accentColor: '#F59E0B',
+    textColor: '#FEF2F2',
+    borderAccent: true,
+  },
+  {
+    id: 'royal_champagne',
+    name: 'Royal Navy & Champagne',
+    bgColor: '#0B1D3A',
+    accentColor: '#E5C17B',
+    textColor: '#F8FAFC',
+    borderAccent: true,
+  },
+  {
+    id: 'emerald_velvet',
+    name: 'Emerald Velvet & Gold',
+    bgColor: '#062B22',
+    accentColor: '#D4AF37',
+    textColor: '#ECFDF5',
+    borderAccent: true,
+  },
+  {
+    id: 'midnight_bronze',
+    name: 'Midnight Espresso & Bronze',
+    bgColor: '#1C1410',
+    accentColor: '#D99B52',
+    textColor: '#FAF5F0',
+    borderAccent: true,
+  },
+  {
+    id: 'burgundy_royale',
+    name: 'Burgundy Royale',
+    bgColor: '#3B0A22',
+    accentColor: '#F2C97D',
+    textColor: '#FDF2F8',
+    borderAccent: true,
+  },
+  {
+    id: 'alabaster_pearl',
+    name: 'Alabaster Pearl',
+    bgColor: '#F8F6F1',
+    accentColor: '#B45309',
+    textColor: '#1C1917',
+    borderAccent: true,
+  },
+  {
+    id: 'graphite_platinum',
+    name: 'Graphite Platinum',
+    bgColor: '#18181B',
+    accentColor: '#D4D4D8',
+    textColor: '#FAFAFA',
+    borderAccent: false,
+  },
+];
 
 export interface RibbonItem {
   id: string;
@@ -455,6 +568,8 @@ export interface RibbonItem {
   phone?: string;
   website?: string;
   address?: string;
+  startsAtIso?: string;
+  expiresAtIso?: string;
 }
 
 export interface RibbonConfig {
@@ -462,6 +577,16 @@ export interface RibbonConfig {
   mode: RibbonMode;
   speed: RibbonSpeed;
   items: RibbonItem[];
+  themePreset?: string;
+  bgColor?: string;
+  accentColor?: string;
+  textColor?: string;
+  width?: RibbonWidth;
+  height?: RibbonHeight;
+  direction?: RibbonDirection;
+  autoRotateSeconds?: number;
+  borderAccent?: boolean;
+  showControls?: boolean;
   updatedBy: string;
   updatedAt?: unknown;
 }
@@ -471,5 +596,48 @@ export const DEFAULT_RIBBON_CONFIG: RibbonConfig = {
   mode: 'moving',
   speed: 'normal',
   items: [],
+  themePreset: 'obsidian_pitch',
+  bgColor: '#0F172A',
+  accentColor: '#10B981',
+  textColor: '#F8FAFC',
+  width: 'full',
+  height: 'standard',
+  direction: 'left',
+  autoRotateSeconds: 8,
+  borderAccent: false,
+  showControls: true,
   updatedBy: 'system',
 };
+
+export function isValidHexColor(value: string | undefined): value is string {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.trim());
+}
+
+export function isRibbonItemLive(item: RibbonItem, nowMs: number = Date.now()): boolean {
+  if (!item.active || !item.title.trim()) return false;
+  if (item.startsAtIso) {
+    const startMs = Date.parse(item.startsAtIso);
+    if (!Number.isNaN(startMs) && nowMs < startMs) return false;
+  }
+  if (item.expiresAtIso) {
+    const endMs = Date.parse(item.expiresAtIso);
+    if (!Number.isNaN(endMs) && nowMs >= endMs) return false;
+  }
+  return true;
+}
+
+export function getRibbonItemScheduleStatus(
+  item: RibbonItem,
+  nowMs: number = Date.now()
+): 'expired' | 'scheduled' | 'active' | 'hidden' {
+  if (!item.active) return 'hidden';
+  if (item.expiresAtIso) {
+    const endMs = Date.parse(item.expiresAtIso);
+    if (!Number.isNaN(endMs) && nowMs >= endMs) return 'expired';
+  }
+  if (item.startsAtIso) {
+    const startMs = Date.parse(item.startsAtIso);
+    if (!Number.isNaN(startMs) && nowMs < startMs) return 'scheduled';
+  }
+  return 'active';
+}
