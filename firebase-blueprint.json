@@ -1,0 +1,816 @@
+{
+  "entities": {
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator grant record keyed by user UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "grantedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "grantedBy", "createdAt"]
+    },
+    "ManagerRecord": {
+      "title": "ManagerRecord",
+      "description": "Trusted manager grant record keyed by user UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "grantedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "grantedBy", "createdAt"]
+    },
+    "PlayerProfile": {
+      "title": "PlayerProfile",
+      "description": "Club-visible non-PII player profile including name, age, preferred positions, approved avatar, and appearance stats.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "firstName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "lastName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "age": {
+          "type": "number"
+        },
+        "favoritePositions": {
+          "type": "array"
+        },
+        "photoStatus": {
+          "type": "string",
+          "enum": ["none", "pending", "approved", "rejected"]
+        },
+        "approvedPhotoUrl": {
+          "type": "string",
+          "maxLength": 180000
+        },
+        "approvedPitchPhotoUrl": {
+          "type": "string",
+          "maxLength": 180000,
+          "description": "Head-and-neck-only transparent cutout used on the tactical soccer pitch."
+        },
+        "pitchCollarStyle": {
+          "type": "string",
+          "enum": ["crew", "polo", "high"],
+          "description": "Selected soccer jersey collar style on the tactical pitch."
+        },
+        "pitchSkinTone": {
+          "type": "string",
+          "maxLength": 16,
+          "pattern": "^(#[0-9a-fA-F]{6})?$",
+          "description": "Matched skin tone hex used to blend the open neck area inside the jersey collar."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["player", "manager", "admin"]
+        },
+        "appearances": {
+          "type": "number"
+        },
+        "business": {
+          "type": "object",
+          "description": "Optional member business details (businessName, category, tagline, phone, website, address, logoUrl, allowPromotion) editable in Profile for club spotlight promotion."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "firstName",
+        "lastName",
+        "age",
+        "favoritePositions",
+        "photoStatus",
+        "approvedPhotoUrl",
+        "role",
+        "appearances",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PlayerPrivateInfo": {
+      "title": "PlayerPrivateInfo",
+      "description": "Isolated PII document storing email, DOB, phone, and emergency contact number.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "dob": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 30
+        },
+        "emergencyContact": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 30
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "dob", "phone", "emergencyContact", "updatedAt"]
+    },
+    "PlayerPhotoSubmission": {
+      "title": "PlayerPhotoSubmission",
+      "description": "Pending or reviewed player avatar upload awaiting admin verification.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "pendingPhotoData": {
+          "type": "string",
+          "maxLength": 180000
+        },
+        "pendingPitchPhotoData": {
+          "type": "string",
+          "maxLength": 180000,
+          "description": "Pending head-and-neck-only cutout for the soccer pitch awaiting admin verification."
+        },
+        "pitchCollarStyle": {
+          "type": "string",
+          "enum": ["crew", "polo", "high"]
+        },
+        "pitchSkinTone": {
+          "type": "string",
+          "maxLength": 16,
+          "pattern": "^(#[0-9a-fA-F]{6})?$"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"]
+        },
+        "rejectionReason": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "submittedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "pendingPhotoData", "status", "rejectionReason", "submittedAt"]
+    },
+    "PlayerManagerRating": {
+      "title": "PlayerManagerRating",
+      "description": "Individual manager evaluation of a player's skill, stamina, and assessed positions.",
+      "type": "object",
+      "properties": {
+        "playerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "managerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "managerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "skill": {
+          "type": "number",
+          "description": "Manager overall/skill rating on a 0-100 scale (synced with overall)."
+        },
+        "overall": {
+          "type": "number",
+          "description": "Separate manager overall rating on a 0-100 scale."
+        },
+        "attack": {
+          "type": "number",
+          "description": "Attack radar factor on a 0-100 scale."
+        },
+        "technique": {
+          "type": "number",
+          "description": "Technique radar factor on a 0-100 scale."
+        },
+        "stamina": {
+          "type": "number",
+          "description": "Stamina radar factor on a 0-100 scale."
+        },
+        "defense": {
+          "type": "number",
+          "description": "Defense radar factor on a 0-100 scale."
+        },
+        "speed": {
+          "type": "number",
+          "description": "Speed radar factor on a 0-100 scale."
+        },
+        "physics": {
+          "type": "number",
+          "description": "Physics radar factor on a 0-100 scale."
+        },
+        "assessedPositions": {
+          "type": "array"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "playerId",
+        "managerId",
+        "managerName",
+        "skill",
+        "stamina",
+        "assessedPositions",
+        "notes",
+        "updatedAt"
+      ]
+    },
+    "ClubSettings": {
+      "title": "ClubSettings",
+      "description": "Global drop-in poll schedule, match venue, and default team color configuration.",
+      "type": "object",
+      "properties": {
+        "pollOpenDay": {
+          "type": "number"
+        },
+        "pollOpenTime": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9]{2}:[0-9]{2}$"
+        },
+        "pollLockDay": {
+          "type": "number"
+        },
+        "pollLockTime": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9]{2}:[0-9]{2}$"
+        },
+        "matchDay": {
+          "type": "number"
+        },
+        "matchTime": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^[0-9]{2}:[0-9]{2}$"
+        },
+        "matchLocation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "defaultTeamColors": {
+          "type": "array"
+        },
+        "maxPlayers": {
+          "type": "number",
+          "description": "Maximum confirmed players per match before additional sign-ups enter the low-chance waiting list."
+        },
+        "skillArrowThresholds": {
+          "type": "array",
+          "description": "Four strictly ascending numeric cutoffs (1-99) defining the five skill arrow tiers."
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "pollOpenDay",
+        "pollOpenTime",
+        "pollLockDay",
+        "pollLockTime",
+        "matchDay",
+        "matchTime",
+        "matchLocation",
+        "defaultTeamColors",
+        "updatedBy",
+        "updatedAt"
+      ]
+    },
+    "DropInMatch": {
+      "title": "DropInMatch",
+      "description": "Weekly Vancouver soccer drop-in poll, AI formation snapshot, manager-adjusted formation, and archived match result.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "weekKey": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 20
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "kickoffIso": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "pollOpensAtIso": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "pollLocksAtIso": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "locked", "completed"]
+        },
+        "teamCount": {
+          "type": "number"
+        },
+        "teamColors": {
+          "type": "array"
+        },
+        "aiOriginalFormation": {
+          "type": "object"
+        },
+        "currentFormation": {
+          "type": "object"
+        },
+        "finalizedPlayerTeams": {
+          "type": "array"
+        },
+        "formationAttendingUids": {
+          "type": "array"
+        },
+        "postGameStats": {
+          "type": "object",
+          "description": "Post-match stats recorded by managers: games/fixtures with team scores and goal scorers, night-wide lateUids and absentUids, optional playerMatchRatings (1-10), optional bestPlayerUid, topScorerUid, and notes."
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "weekKey",
+        "location",
+        "kickoffIso",
+        "pollOpensAtIso",
+        "pollLocksAtIso",
+        "status",
+        "teamCount",
+        "teamColors",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MatchVote": {
+      "title": "MatchVote",
+      "description": "Player attendance vote and goalie availability for a specific drop-in match.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "matchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "attending": {
+          "type": "boolean"
+        },
+        "goalieOption": {
+          "type": "string",
+          "enum": ["none", "willing", "only_goalie"]
+        },
+        "playerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when player entered the attending queue for first-come-first-served waitlist ordering."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "matchId", "attending", "goalieOption", "playerName", "updatedAt"]
+    },
+    "EducationPost": {
+      "title": "EducationPost",
+      "description": "Tactical guide, positioning study, or conditioning material published by managers.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 140
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Tactics", "Positioning", "Conditioning", "Rules & Fair Play"]
+        },
+        "targetPositions": {
+          "type": "array"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 400
+        },
+        "content": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 5000
+        },
+        "authorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "category",
+        "targetPositions",
+        "summary",
+        "content",
+        "authorId",
+        "authorName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClubPayment": {
+      "title": "ClubPayment",
+      "description": "Monthly club membership fee payment status per member and monthKey (YYYY-MM).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "monthKey": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^[0-9]{4}-[0-9]{2}$"
+        },
+        "paid": {
+          "type": "boolean"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "recordedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["manual", "gmail"],
+          "description": "Whether payment was recorded manually or confirmed via Gmail receipt sync."
+        },
+        "gmailMessageId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$",
+          "description": "Opaque Gmail message ID used to prevent duplicate receipt imports."
+        },
+        "receiptDateIso": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "ISO timestamp of the matched payment receipt email."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "uid", "monthKey", "paid", "amount", "recordedBy", "updatedAt"]
+    },
+    "PaymentSenderAlias": {
+      "title": "PaymentSenderAlias",
+      "description": "Manager-only mapping from a normalized payment email sender name or email address to a club player UID for automatic Gmail receipt matching.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderKey": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "senderLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "senderKey", "senderLabel", "uid", "updatedBy", "updatedAt"]
+    },
+    "ClubNotification": {
+      "title": "ClubNotification",
+      "description": "In-app notification sent to a player when promoted from the low-chance waiting list into the confirmed match lineup.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "recipientUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "matchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "matchTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "type": {
+          "type": "string",
+          "enum": ["waitlist_promoted"]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 400
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "recipientUid", "matchId", "matchTitle", "type", "message", "read", "createdBy", "createdAt"]
+    },
+    "RibbonConfig": {
+      "title": "RibbonConfig",
+      "description": "Admin-managed club ribbon bar configuration controlling visibility, moving/static mode, speed, and curated business spotlights, news, and announcements.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["moving", "static"]
+        },
+        "speed": {
+          "type": "string",
+          "enum": ["slow", "normal", "fast"]
+        },
+        "items": {
+          "type": "array",
+          "description": "Up to 20 ordered ribbon items (business, news, or announcement)."
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["enabled", "mode", "speed", "items", "updatedBy", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Admin role grants"
+    },
+    "/managers/{uid}": {
+      "schema": { "$ref": "#/entities/ManagerRecord" },
+      "description": "Manager role grants"
+    },
+    "/players/{uid}": {
+      "schema": { "$ref": "#/entities/PlayerProfile" },
+      "description": "Public club player roster without PII"
+    },
+    "/player_private/{uid}": {
+      "schema": { "$ref": "#/entities/PlayerPrivateInfo" },
+      "description": "Isolated PII and emergency contact information"
+    },
+    "/player_photos/{uid}": {
+      "schema": { "$ref": "#/entities/PlayerPhotoSubmission" },
+      "description": "Pending and reviewed profile photo uploads"
+    },
+    "/player_ratings/{ratingId}": {
+      "schema": { "$ref": "#/entities/PlayerManagerRating" },
+      "description": "Manager skill, stamina, and position evaluations"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/ClubSettings" },
+      "description": "Club schedule, player limit, and default team color settings"
+    },
+    "/matches/{matchId}": {
+      "schema": { "$ref": "#/entities/DropInMatch" },
+      "description": "Weekly drop-in match polls and formations"
+    },
+    "/matches/{matchId}/votes/{uid}": {
+      "schema": { "$ref": "#/entities/MatchVote" },
+      "description": "Player attendance votes for a match"
+    },
+    "/education_posts/{postId}": {
+      "schema": { "$ref": "#/entities/EducationPost" },
+      "description": "Educational materials posted by managers"
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/ClubPayment" },
+      "description": "Monthly club fee payment records per member"
+    },
+    "/payment_aliases/{aliasId}": {
+      "schema": { "$ref": "#/entities/PaymentSenderAlias" },
+      "description": "Manager-only saved sender aliases mapping bank or email senders to player UIDs"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/ClubNotification" },
+      "description": "Player waitlist promotion notifications"
+    },
+    "/ribbon/{docId}": {
+      "schema": { "$ref": "#/entities/RibbonConfig" },
+      "description": "Admin-managed club ribbon bar configuration and announcements"
+    }
+  }
+}

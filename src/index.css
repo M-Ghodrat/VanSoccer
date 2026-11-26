@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Barlow Condensed', system-ui, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.pitch-stripes {
+  background-color: #146c37;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.04) 0px,
+    rgba(255, 255, 255, 0.04) 36px,
+    transparent 36px,
+    transparent 72px
+  );
+}
+
+.portrait-perimeter-50 {
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 82%,
+    rgba(0, 0, 0, 0.5) 82.5%,
+    rgba(0, 0, 0, 0.5) 100%
+  );
+  mask-image: radial-gradient(
+    circle at center,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 82%,
+    rgba(0, 0, 0, 0.5) 82.5%,
+    rgba(0, 0, 0, 0.5) 100%
+  );
+}
+
+.bg-checkerboard {
+  background-color: #334155;
+  background-image:
+    linear-gradient(45deg, #475569 25%, transparent 25%),
+    linear-gradient(-45deg, #475569 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #475569 75%),
+    linear-gradient(-45deg, transparent 75%, #475569 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+@keyframes club-ribbon-marquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.club-ribbon-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: club-ribbon-marquee var(--ribbon-duration, 28s) linear infinite;
+}
+
+.club-ribbon-marquee:hover .club-ribbon-track,
+.club-ribbon-marquee:focus-within .club-ribbon-track,
+.club-ribbon-paused .club-ribbon-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .club-ribbon-track {
+    animation: none;
+  }
+}
+
+
+
