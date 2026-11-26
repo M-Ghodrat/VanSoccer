@@ -148,6 +148,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [cropperSourceUrl, setCropperSourceUrl] = useState<string | null>(null);
+  const [photoSaveError, setPhotoSaveError] = useState<string | null>(null);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -175,6 +176,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     skinTone,
   }: CroppedPhotoResult) => {
     setError(null);
+    setPhotoSaveError(null);
     setSuccessMsg(null);
     setUploadingPhoto(true);
     try {
@@ -205,7 +207,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       }
       setCropperSourceUrl(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload photo.');
+      const msg = err instanceof Error ? err.message : 'Failed to upload photo.';
+      setPhotoSaveError(msg);
+      setError(msg);
     } finally {
       setUploadingPhoto(false);
     }
@@ -534,14 +538,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       {/* Compact Photo Status Banner */}
       {effectivePhotoStatus !== 'approved' && (
-        <div className="px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-2.5 text-xs text-amber-900">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <div
+          className={`px-3.5 py-2.5 rounded-xl border flex items-center gap-2.5 text-xs ${
+            photoDirty && pendingPhotoPreview
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : 'bg-amber-50 border-amber-200 text-amber-900'
+          }`}
+        >
+          {photoDirty && pendingPhotoPreview ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          )}
           <span>
-            {effectivePhotoStatus === 'pending'
-              ? 'Photo pending admin approval.'
-              : effectivePhotoStatus === 'rejected'
-                ? `Photo declined${photoSubmission?.rejectionReason ? `: ${photoSubmission.rejectionReason}` : '.'}`
-                : 'Profile photo missing.'}
+            {photoDirty && pendingPhotoPreview
+              ? 'Photo ready — click Complete below to save your profile.'
+              : effectivePhotoStatus === 'pending'
+                ? 'Photo pending admin approval.'
+                : effectivePhotoStatus === 'rejected'
+                  ? `Photo declined${photoSubmission?.rejectionReason ? `: ${photoSubmission.rejectionReason}` : '.'}`
+                  : 'Profile photo missing.'}
           </span>
         </div>
       )}
@@ -1184,8 +1200,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           busy={uploadingPhoto}
           confirmLabel={profile ? 'Save & Upload Photo' : 'Apply Photo'}
           initialSkinTone={pendingSkinTone || undefined}
+          externalError={photoSaveError}
           onCancel={() => {
-            if (!uploadingPhoto) setCropperSourceUrl(null);
+            if (!uploadingPhoto) {
+              setPhotoSaveError(null);
+              setCropperSourceUrl(null);
+            }
           }}
           onConfirm={handleConfirmCroppedPhoto}
         />

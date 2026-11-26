@@ -32,6 +32,7 @@ interface CircularPhotoCropperProps {
   busy?: boolean;
   confirmLabel?: string;
   initialSkinTone?: string;
+  externalError?: string | null;
   onCancel: () => void;
   onConfirm: (result: CroppedPhotoResult) => void;
 }
@@ -191,6 +192,7 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
   busy = false,
   confirmLabel = 'Apply Photo',
   initialSkinTone,
+  externalError = null,
   onCancel,
   onConfirm,
 }) => {
@@ -925,9 +927,9 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
             </div>
           </div>
 
-          {exportError && (
+          {(exportError || externalError) && (
             <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800">
-              {exportError}
+              {exportError || externalError}
             </div>
           )}
         </div>

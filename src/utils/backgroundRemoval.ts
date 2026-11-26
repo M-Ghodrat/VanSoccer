@@ -1,7 +1,18 @@
 import { FilesetResolver, ImageSegmenter } from '@mediapipe/tasks-vision';
 
-const MULTICLASS_MODEL_PROXY_URL = '/api/mediapipe-model/selfie-multiclass';
-const SELFIE_FALLBACK_MODEL_PROXY_URL = '/api/mediapipe-model/selfie-segmenter';
+const LOCAL_WASM_URL = '/mediapipe/wasm';
+const CDN_WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.3/wasm';
+
+const MULTICLASS_MODEL_CANDIDATES = [
+  '/api/mediapipe-model/selfie-multiclass',
+  'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite',
+];
+
+const SELFIE_FALLBACK_MODEL_CANDIDATES = [
+  '/api/mediapipe-model/selfie-segmenter',
+  'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+];
+
 const MAX_WORKING_DIMENSION = 512;
 
 export interface PortraitCutoutPair {
@@ -35,33 +46,72 @@ async function withQuietTfliteLogs<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+async function fetchValidModelBuffer(urls: string[]): Promise<Uint8Array | null> {
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) continue;
+      const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+      // Reject SPA HTML fallbacks (e.g. Netlify returning index.html for missing /api/* routes)
+      if (contentType.includes('text/html') || contentType.includes('application/json')) {
+        continue;
+      }
+      const buf = await resp.arrayBuffer();
+      if (buf.byteLength < 10_000) continue;
+      return new Uint8Array(buf);
+    } catch {
+      // Try next candidate URL
+    }
+  }
+  return null;
+}
+
+async function resolveVisionFileset() {
+  try {
+    return await FilesetResolver.forVisionTasks(LOCAL_WASM_URL);
+  } catch {
+    return await FilesetResolver.forVisionTasks(CDN_WASM_URL);
+  }
+}
+
 async function getImageSegmenter(): Promise<{ segmenter: ImageSegmenter; isMulticlass: boolean }> {
   if (!segmenterPromise) {
     segmenterPromise = withQuietTfliteLogs(async () => {
-      const vision = await FilesetResolver.forVisionTasks('/mediapipe/wasm');
-      try {
-        const multiclass = await ImageSegmenter.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MULTICLASS_MODEL_PROXY_URL,
-            delegate: 'CPU',
-          },
-          runningMode: 'IMAGE',
-          outputCategoryMask: false,
-          outputConfidenceMasks: true,
-        });
-        return { segmenter: multiclass, isMulticlass: true };
-      } catch {
-        const fallback = await ImageSegmenter.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: SELFIE_FALLBACK_MODEL_PROXY_URL,
-            delegate: 'CPU',
-          },
-          runningMode: 'IMAGE',
-          outputCategoryMask: false,
-          outputConfidenceMasks: true,
-        });
-        return { segmenter: fallback, isMulticlass: false };
+      const vision = await resolveVisionFileset();
+
+      const multiclassBuffer = await fetchValidModelBuffer(MULTICLASS_MODEL_CANDIDATES);
+      if (multiclassBuffer) {
+        try {
+          const multiclass = await ImageSegmenter.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetBuffer: multiclassBuffer,
+              delegate: 'CPU',
+            },
+            runningMode: 'IMAGE',
+            outputCategoryMask: false,
+            outputConfidenceMasks: true,
+          });
+          return { segmenter: multiclass, isMulticlass: true };
+        } catch {
+          // Fall through to lightweight selfie segmenter
+        }
       }
+
+      const fallbackBuffer = await fetchValidModelBuffer(SELFIE_FALLBACK_MODEL_CANDIDATES);
+      if (!fallbackBuffer) {
+        throw new Error('Could not download portrait cutout model. Please check your connection and try again.');
+      }
+
+      const fallback = await ImageSegmenter.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetBuffer: fallbackBuffer,
+          delegate: 'CPU',
+        },
+        runningMode: 'IMAGE',
+        outputCategoryMask: false,
+        outputConfidenceMasks: true,
+      });
+      return { segmenter: fallback, isMulticlass: false };
     }).catch((err) => {
       segmenterPromise = null;
       throw err;

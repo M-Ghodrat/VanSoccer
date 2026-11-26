@@ -702,9 +702,13 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
         };
       });
 
+      const idToken = await user.getIdToken();
       const response = await fetch('/api/formation/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           matchTitle: activeMatch.title,
           teamCount,
@@ -713,9 +717,23 @@ export const ManagerHub: React.FC<ManagerHubProps> = ({
         }),
       });
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+      } catch {
+        throw new Error(
+          response.ok
+            ? 'AI formation service returned an invalid response.'
+            : `AI formation service failed (${response.status}).`
+        );
+      }
       if (!response.ok) {
-        throw new Error(data.error || 'AI formation service failed.');
+        throw new Error(
+          typeof data.error === 'string' && data.error
+            ? data.error
+            : 'AI formation service failed.'
+        );
       }
 
       try {

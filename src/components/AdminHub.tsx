@@ -752,6 +752,7 @@ export const AdminHub: React.FC<AdminHubProps> = ({
             adminCropTarget.mode === 'pending' ? 'Save Adjusted Pending Photo' : 'Save & Approve Photo'
           }
           initialSkinTone={adminCropTarget.initialSkinTone || undefined}
+          externalError={error}
           onCancel={() => {
             if (!savingCroppedPhoto) setAdminCropTarget(null);
           }}
