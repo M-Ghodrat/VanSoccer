@@ -64,19 +64,32 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isSafeHttpUrl(url) {
+      return url == ''
+        || (url > 'https://' && url < 'https:/0')
+        || (url > 'http://' && url < 'http:/0');
+    }
+
+    function isSafeImageOrDataUrl(url) {
+      return url == ''
+        || (url > 'https://' && url < 'https:/0')
+        || (url > 'http://' && url < 'http:/0')
+        || (url > 'data:image/' && url < 'data:image0');
+    }
+
     function isValidPlayerBusiness(biz) {
       return biz is map
         && biz.keys().hasAll(['businessName', 'category', 'tagline', 'phone', 'website', 'address', 'allowPromotion'])
         && biz.keys().hasOnly(['id', 'businessName', 'category', 'tagline', 'phone', 'website', 'address', 'logoUrl', 'allowPromotion'])
-        && (!('id' in biz) || (biz.id is string && biz.id.size() >= 1 && biz.id.size() <= 64 && biz.id.matches('^[a-zA-Z0-9_\\-]+$')))
+        && (!('id' in biz) || biz.id == null || (biz.id is string && biz.id.size() <= 64))
         && biz.businessName is string && biz.businessName.size() <= 80
         && biz.category is string && biz.category.size() <= 50
         && biz.tagline is string && biz.tagline.size() <= 160
         && biz.phone is string && biz.phone.size() <= 30
-        && biz.website is string && biz.website.size() <= 180
-        && (biz.website == '' || biz.website.matches('^https?://.+'))
+        && biz.website is string && biz.website.size() <= 300
+        && isSafeHttpUrl(biz.website)
         && biz.address is string && biz.address.size() <= 120
-        && (!('logoUrl' in biz) || (biz.logoUrl is string && biz.logoUrl.size() <= 80000 && (biz.logoUrl == '' || biz.logoUrl.matches('^https?://.+') || biz.logoUrl.matches('^data:image/(png|jpeg|jpg|webp);base64,.+'))))
+        && (!('logoUrl' in biz) || biz.logoUrl == null || (biz.logoUrl is string && biz.logoUrl.size() <= 80000 && isSafeImageOrDataUrl(biz.logoUrl)))
         && biz.allowPromotion is bool;
     }
 
@@ -102,10 +115,10 @@ service cloud.firestore {
         && data.favoritePositions[1] is string && data.favoritePositions[1].size() >= 1 && data.favoritePositions[1].size() <= 16
         && data.favoritePositions[2] is string && data.favoritePositions[2].size() >= 1 && data.favoritePositions[2].size() <= 16
         && data.photoStatus in ['none', 'pending', 'approved', 'rejected']
-        && data.approvedPhotoUrl is string && data.approvedPhotoUrl.size() <= 180000
-        && (!('approvedPitchPhotoUrl' in data) || (data.approvedPitchPhotoUrl is string && data.approvedPitchPhotoUrl.size() <= 180000))
-        && (!('pitchCollarStyle' in data) || data.pitchCollarStyle in ['crew', 'polo', 'high'])
-        && (!('pitchSkinTone' in data) || (data.pitchSkinTone is string && data.pitchSkinTone.size() <= 16 && data.pitchSkinTone.matches('^(#[0-9a-fA-F]{6})?$')))
+        && data.approvedPhotoUrl is string && data.approvedPhotoUrl.size() <= 350000
+        && (!('approvedPitchPhotoUrl' in data) || data.approvedPitchPhotoUrl == null || (data.approvedPitchPhotoUrl is string && data.approvedPitchPhotoUrl.size() <= 350000))
+        && (!('pitchCollarStyle' in data) || data.pitchCollarStyle == null || data.pitchCollarStyle == '' || data.pitchCollarStyle in ['crew', 'polo', 'high'])
+        && (!('pitchSkinTone' in data) || data.pitchSkinTone == null || data.pitchSkinTone == '' || (data.pitchSkinTone is string && data.pitchSkinTone.size() <= 16 && data.pitchSkinTone.matches('^#[0-9a-fA-F]{6}$')))
         && data.role in ['player', 'manager', 'admin']
         && data.appearances is number && data.appearances >= 0 && data.appearances <= 10000
         && (!('business' in data) || data.business == null || isValidPlayerBusiness(data.business))
@@ -374,7 +387,7 @@ service cloud.firestore {
         && (!('ownerName' in item) || (item.ownerName is string && item.ownerName.size() <= 80))
         && (!('category' in item) || (item.category is string && item.category.size() <= 50))
         && (!('phone' in item) || (item.phone is string && item.phone.size() <= 30))
-        && (!('website' in item) || (item.website is string && item.website.size() <= 180))
+        && (!('website' in item) || (item.website is string && item.website.size() <= 300 && isSafeHttpUrl(item.website)))
         && (!('address' in item) || (item.address is string && item.address.size() <= 120))
         && (!('startsAtIso' in item) || (item.startsAtIso is string && item.startsAtIso.size() <= 40))
         && (!('expiresAtIso' in item) || (item.expiresAtIso is string && item.expiresAtIso.size() <= 40));

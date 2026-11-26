@@ -159,6 +159,16 @@ export default function App() {
         return;
       }
 
+      // Ensure cached JWT actually reflects email_verified: true for Firestore rules
+      try {
+        const tokenResult = await firebaseUser.getIdTokenResult();
+        if (tokenResult.claims.email_verified !== true) {
+          await firebaseUser.getIdToken(true);
+        }
+      } catch {
+        // Non-fatal; Firestore writes will also refresh on retry if needed
+      }
+
       // Bootstrap admin grant document for runtime admin email
       if (firebaseUser.email?.toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase()) {
         try {

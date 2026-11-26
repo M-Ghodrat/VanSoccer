@@ -84,11 +84,11 @@
         },
         "approvedPhotoUrl": {
           "type": "string",
-          "maxLength": 180000
+          "maxLength": 350000
         },
         "approvedPitchPhotoUrl": {
           "type": "string",
-          "maxLength": 180000,
+          "maxLength": 350000,
           "description": "Head-and-neck-only transparent cutout used on the tactical soccer pitch."
         },
         "pitchCollarStyle": {

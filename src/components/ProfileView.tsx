@@ -378,11 +378,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       .map(sanitizeBusinessEntry)
       .filter((b) => b.businessName.length > 0);
 
-    await updateDoc(doc(db, 'players', user.uid), {
+    const payload = {
       businesses: sanitized,
       business: sanitized[0] ?? null,
       updatedAt: serverTimestamp(),
-    });
+    };
+
+    try {
+      await updateDoc(doc(db, 'players', user.uid), payload);
+    } catch (err) {
+      const code = (err as { code?: string })?.code || '';
+      if (code === 'permission-denied') {
+        await user.getIdToken(true);
+        await updateDoc(doc(db, 'players', user.uid), {
+          ...payload,
+          updatedAt: serverTimestamp(),
+        });
+        return;
+      }
+      throw err;
+    }
   };
 
   const handleUploadBizLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1105,7 +1120,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     </label>
                     <input
                       type="text"
-                      maxLength={180}
+                      maxLength={300}
                       value={bizWebsite}
                       onChange={(e) => setBizWebsite(e.target.value)}
                       placeholder="https://..."

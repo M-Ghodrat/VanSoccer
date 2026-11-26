@@ -1778,7 +1778,7 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
                     </label>
                     <input
                       type="text"
-                      maxLength={180}
+                      maxLength={300}
                       value={draftWebsite}
                       onChange={(e) => setDraftWebsite(e.target.value)}
                       placeholder="https://..."

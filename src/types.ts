@@ -138,23 +138,30 @@ export const BUSINESS_CATEGORY_SUGGESTIONS = [
 ] as const;
 
 export function normalizeSafeHttpUrl(raw: string): string {
-  const trimmed = raw.trim().slice(0, 180);
+  const trimmed = raw.trim().replace(/[\r\n]+/g, '');
   if (!trimmed) return '';
-  if (/^https?:\/\//i.test(trimmed)) {
-    try {
-      const parsed = new URL(trimmed);
-      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-        return parsed.toString().slice(0, 180);
-      }
-      return '';
-    } catch {
+
+  const candidate = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : /^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}([/:?#].*)?$/.test(trimmed)
+      ? `https://${trimmed}`
+      : '';
+
+  if (!candidate) return '';
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return '';
     }
+    if (!parsed.hostname || !parsed.hostname.includes('.')) {
+      return '';
+    }
+    const normalized = parsed.toString();
+    return normalized.length <= 300 ? normalized : normalized.slice(0, 300);
+  } catch {
+    return '';
   }
-  if (/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\/.*)?$/.test(trimmed)) {
-    return `https://${trimmed}`.slice(0, 180);
-  }
-  return '';
 }
 
 export function normalizeSafeImageUrl(raw: string): string {
