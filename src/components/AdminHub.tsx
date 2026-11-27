@@ -1,11 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { User } from 'firebase/auth';
-import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
-import { Camera, Check, Crop, Phone, Shield, Trash2, Upload, User as UserIcon, UserPlus, Users, X } from 'lucide-react';
+import { deleteDoc, deleteField, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import {
+  Briefcase,
+  Camera,
+  Check,
+  CheckCircle2,
+  Crop,
+  ImagePlus,
+  Pencil,
+  Plus,
+  Search,
+  Shield,
+  Trash2,
+  Upload,
+  User as UserIcon,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import {
   DropInMatch,
   getPlayerBusinesses,
+  MAX_PLAYER_BUSINESSES,
+  normalizeSafeHttpUrl,
+  normalizeSafeImageUrl,
+  PlayerBusinessInfo,
   PlayerPhotoSubmission,
   PlayerPrivateInfo,
   PlayerProfile,
@@ -13,8 +34,32 @@ import {
   UserRole,
 } from '../types';
 import { isTestPlayerUid, removeAllTestPlayers, seedTestPlayers } from '../utils/testPlayers';
+import { compressBrandImageFile } from '../utils/imageUpload';
+import { BusinessCategorySelect } from './BusinessCategorySelect';
 import { CircularPhotoCropper, CroppedPhotoResult } from './CircularPhotoCropper';
 import { PlayerKitShouldersSvg } from './SoccerPitch';
+
+function makeBusinessId(): string {
+  return `biz_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function sanitizeBusinessEntry(biz: PlayerBusinessInfo): PlayerBusinessInfo {
+  const safeId =
+    biz.id && /^[a-zA-Z0-9_-]{1,64}$/.test(biz.id) ? biz.id : makeBusinessId();
+  const safeUrl = biz.website ? normalizeSafeHttpUrl(biz.website) : '';
+  const safeLogo = biz.logoUrl ? normalizeSafeImageUrl(biz.logoUrl) : '';
+  return {
+    id: safeId,
+    businessName: biz.businessName.trim().slice(0, 80),
+    category: (biz.category || '').trim().slice(0, 50),
+    tagline: (biz.tagline || '').trim().slice(0, 160),
+    phone: (biz.phone || '').trim().slice(0, 30),
+    website: safeUrl,
+    address: (biz.address || '').trim().slice(0, 120),
+    logoUrl: safeLogo,
+    allowPromotion: biz.allowPromotion !== false,
+  };
+}
 
 interface AdminHubProps {
   user: User;
@@ -24,6 +69,7 @@ interface AdminHubProps {
   photoSubmissions: PlayerPhotoSubmission[];
   ratings: PlayerRating[];
   matches: DropInMatch[];
+  initialSubTab?: 'photos' | 'roles' | 'directory';
 }
 
 export const AdminHub: React.FC<AdminHubProps> = ({
@@ -34,8 +80,11 @@ export const AdminHub: React.FC<AdminHubProps> = ({
   photoSubmissions,
   ratings,
   matches,
+  initialSubTab,
 }) => {
-  const [subTab, setSubTab] = useState<'photos' | 'roles' | 'directory'>('photos');
+  const [subTab, setSubTab] = useState<'photos' | 'roles' | 'directory'>(() => {
+    return initialSubTab || 'directory';
+  });
   const [rejectionNotes, setRejectionNotes] = useState<Record<string, string>>({});
   const [busyUid, setBusyUid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +97,31 @@ export const AdminHub: React.FC<AdminHubProps> = ({
     initialSkinTone?: string;
   } | null>(null);
   const [savingCroppedPhoto, setSavingCroppedPhoto] = useState(false);
+
+  // Business management state (used in Directory member actions)
+  const [directorySearch, setDirectorySearch] = useState('');
+  const [editingBusinessTarget, setEditingBusinessTarget] = useState<{
+    playerUid: string;
+    business: PlayerBusinessInfo | null;
+  } | null>(null);
+  const [deletingBusinessTarget, setDeletingBusinessTarget] = useState<{
+    playerUid: string;
+    business: PlayerBusinessInfo;
+  } | null>(null);
+  const [savingBusiness, setSavingBusiness] = useState(false);
+  const [uploadingBizLogo, setUploadingBizLogo] = useState(false);
+
+  // Modal form fields
+  const [formPlayerUid, setFormPlayerUid] = useState('');
+  const [formBizId, setFormBizId] = useState('');
+  const [formBizName, setFormBizName] = useState('');
+  const [formBizCategory, setFormBizCategory] = useState('');
+  const [formBizTagline, setFormBizTagline] = useState('');
+  const [formBizPhone, setFormBizPhone] = useState('');
+  const [formBizWebsite, setFormBizWebsite] = useState('');
+  const [formBizAddress, setFormBizAddress] = useState('');
+  const [formBizLogoUrl, setFormBizLogoUrl] = useState('');
+  const [formBizAllowPromotion, setFormBizAllowPromotion] = useState(true);
 
   const playersById = useMemo(() => new Map(players.map((p) => [p.uid, p])), [players]);
   const privateById = useMemo(() => new Map(privateInfos.map((i) => [i.uid, i])), [privateInfos]);
@@ -111,6 +185,41 @@ export const AdminHub: React.FC<AdminHubProps> = ({
       ),
     [players, pendingPhotos]
   );
+
+  // Automatically adjust subTab if initialSubTab prop changes or if photos subtab is active with 0 photos left
+  useEffect(() => {
+    if (initialSubTab) {
+      setSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+  useEffect(() => {
+    // If photos subtab is active but there are no photos pending review, switch to directory
+    if (subTab === 'photos' && pendingPhotos.length === 0 && orphanedPendingPlayers.length === 0) {
+      setSubTab('directory');
+    }
+  }, [subTab, pendingPhotos.length, orphanedPendingPlayers.length]);
+
+  const filteredDirectoryPlayers = useMemo(() => {
+    const term = directorySearch.trim().toLowerCase();
+    if (!term) return players;
+    return players.filter((p) => {
+      const priv = privateById.get(p.uid);
+      const name = `${p.firstName} ${p.lastName}`.toLowerCase();
+      const email = (priv?.email || '').toLowerCase();
+      const phone = (priv?.phone || '').toLowerCase();
+      const em = (priv?.emergencyContact || '').toLowerCase();
+      const bList = getPlayerBusinesses(p);
+      const bNames = bList.map((b) => b.businessName.toLowerCase()).join(' ');
+      return (
+        name.includes(term) ||
+        email.includes(term) ||
+        phone.includes(term) ||
+        em.includes(term) ||
+        bNames.includes(term)
+      );
+    });
+  }, [players, privateById, directorySearch]);
 
   const handleResetOrphanedStatus = async (player: PlayerProfile) => {
     setError(null);
@@ -363,21 +472,197 @@ export const AdminHub: React.FC<AdminHubProps> = ({
     }
   };
 
+  // Open Business Editor
+  const openEditBusinessModal = (playerUid: string, business: PlayerBusinessInfo | null) => {
+    setError(null);
+    setNotice(null);
+    setFormPlayerUid(playerUid);
+    setEditingBusinessTarget({ playerUid, business });
+    if (business) {
+      setFormBizId(business.id || makeBusinessId());
+      setFormBizName(business.businessName);
+      setFormBizCategory(business.category || '');
+      setFormBizTagline(business.tagline || '');
+      setFormBizPhone(business.phone || '');
+      setFormBizWebsite(business.website || '');
+      setFormBizAddress(business.address || '');
+      setFormBizLogoUrl(business.logoUrl || '');
+      setFormBizAllowPromotion(business.allowPromotion !== false);
+    } else {
+      setFormBizId(makeBusinessId());
+      setFormBizName('');
+      setFormBizCategory('');
+      setFormBizTagline('');
+      setFormBizPhone('');
+      setFormBizWebsite('');
+      setFormBizAddress('');
+      setFormBizLogoUrl('');
+      setFormBizAllowPromotion(true);
+    }
+  };
+
+  const closeBusinessModal = () => {
+    setEditingBusinessTarget(null);
+    setDeletingBusinessTarget(null);
+    setError(null);
+  };
+
+  const handleUploadLogoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError(null);
+    setUploadingBizLogo(true);
+    try {
+      const dataUrl = await compressBrandImageFile(file, 220);
+      setFormBizLogoUrl(dataUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not compress business logo.');
+    } finally {
+      setUploadingBizLogo(false);
+    }
+  };
+
+  const handleSaveBusinessSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formPlayerUid) {
+      setError('Please select a member.');
+      return;
+    }
+    const targetPlayer = playersById.get(formPlayerUid);
+    if (!targetPlayer) {
+      setError('Player record not found.');
+      return;
+    }
+
+    const cleanName = formBizName.trim().slice(0, 80);
+    if (!cleanName) {
+      setError('Business name is required.');
+      return;
+    }
+
+    const rawUrl = formBizWebsite.trim();
+    const safeUrl = rawUrl ? normalizeSafeHttpUrl(rawUrl) : '';
+    if (rawUrl && !safeUrl) {
+      setError('Please enter a valid website URL (e.g. https://example.com).');
+      return;
+    }
+
+    const currentBusinesses = getPlayerBusinesses(targetPlayer);
+    const isNew = !editingBusinessTarget?.business;
+
+    if (isNew && currentBusinesses.length >= MAX_PLAYER_BUSINESSES) {
+      setError(`This member already has the maximum of ${MAX_PLAYER_BUSINESSES} businesses.`);
+      return;
+    }
+
+    const normalizedTargetName = cleanName.toLowerCase();
+    const hasDuplicateName = currentBusinesses.some((b) => {
+      if (!isNew && editingBusinessTarget?.business?.id && b.id === editingBusinessTarget.business.id) {
+        return false;
+      }
+      return b.businessName.trim().toLowerCase() === normalizedTargetName;
+    });
+    if (hasDuplicateName) {
+      setError(`This member already has a business named "${cleanName}". Please use a distinct name.`);
+      return;
+    }
+
+    const entry: PlayerBusinessInfo = sanitizeBusinessEntry({
+      id: formBizId || makeBusinessId(),
+      businessName: cleanName,
+      category: formBizCategory,
+      tagline: formBizTagline,
+      phone: formBizPhone,
+      website: safeUrl,
+      address: formBizAddress,
+      logoUrl: formBizLogoUrl ? normalizeSafeImageUrl(formBizLogoUrl) : '',
+      allowPromotion: formBizAllowPromotion,
+    });
+
+    const nextList = isNew
+      ? [...currentBusinesses, entry]
+      : currentBusinesses.map((b) => (b.id === entry.id ? entry : b));
+
+    setSavingBusiness(true);
+    setError(null);
+    try {
+      await updateDoc(doc(db, 'players', formPlayerUid), {
+        businesses: nextList,
+        business: deleteField(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setNotice(
+        isNew
+          ? `Added business "${entry.businessName}" for ${targetPlayer.firstName} ${targetPlayer.lastName}.`
+          : `Updated business "${entry.businessName}" for ${targetPlayer.firstName} ${targetPlayer.lastName}.`
+      );
+      closeBusinessModal();
+    } catch (err) {
+      try {
+        handleFirestoreError(err, OperationType.UPDATE, `players/${formPlayerUid}`);
+      } catch (wrapped) {
+        setError(wrapped instanceof Error ? wrapped.message : 'Failed to save business.');
+      }
+    } finally {
+      setSavingBusiness(false);
+    }
+  };
+
+  const handleConfirmDeleteBusiness = async () => {
+    if (!deletingBusinessTarget) return;
+    const { playerUid, business } = deletingBusinessTarget;
+    const targetPlayer = playersById.get(playerUid);
+    if (!targetPlayer) return;
+
+    setSavingBusiness(true);
+    setError(null);
+    try {
+      const current = getPlayerBusinesses(targetPlayer);
+      const nextList = current.filter((b) => b.id !== business.id);
+
+      await updateDoc(doc(db, 'players', playerUid), {
+        businesses: nextList,
+        business: deleteField(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setNotice(
+        `Deleted "${business.businessName}" for ${targetPlayer.firstName} ${targetPlayer.lastName}.`
+      );
+      closeBusinessModal();
+    } catch (err) {
+      try {
+        handleFirestoreError(err, OperationType.UPDATE, `players/${playerUid}`);
+      } catch (wrapped) {
+        setError(wrapped instanceof Error ? wrapped.message : 'Failed to delete business.');
+      }
+    } finally {
+      setSavingBusiness(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-          Admin
+          Admin Hub
         </h1>
 
-        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
+        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
           {[
-            {
-              id: 'photos' as const,
-              label: `Photos (${pendingPhotos.length + orphanedPendingPlayers.length})`,
-            },
-            { id: 'roles' as const, label: 'Roles' },
-            { id: 'directory' as const, label: 'Directory' },
+            ...(pendingPhotos.length + orphanedPendingPlayers.length > 0
+              ? [
+                  {
+                    id: 'photos' as const,
+                    label: `Review Photos (${pendingPhotos.length + orphanedPendingPlayers.length})`,
+                    highlight: true,
+                  },
+                ]
+              : []),
+            { id: 'directory' as const, label: `Directory (${players.length})`, highlight: false },
+            { id: 'roles' as const, label: 'Roles', highlight: false },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -387,8 +672,14 @@ export const AdminHub: React.FC<AdminHubProps> = ({
                 setError(null);
                 setNotice(null);
               }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
-                subTab === tab.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                subTab === tab.id
+                  ? tab.highlight
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'bg-white text-slate-900 shadow-sm'
+                  : tab.highlight
+                    ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               {tab.label}
@@ -688,67 +979,387 @@ export const AdminHub: React.FC<AdminHubProps> = ({
       )}
 
       {subTab === 'directory' && (
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="p-4 border-b border-slate-200 flex items-center gap-2">
-            <Phone className="w-4 h-4 text-emerald-700" />
-            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <Users className="w-4 h-4 hidden" />
-              Player Contact & Emergency Directory
-            </h2>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200">
+            <div className="relative flex-1 min-w-[240px] max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={directorySearch}
+                onChange={(e) => setDirectorySearch(e.target.value)}
+                placeholder="Search member, phone, email, business..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+            <div className="text-xs text-slate-500 font-medium">
+              Showing {filteredDirectoryPlayers.length} of {players.length} members
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
-                <tr>
-                  <th className="py-3 px-4 font-semibold">Player</th>
-                  <th className="py-3 px-4 font-semibold">DOB</th>
-                  <th className="py-3 px-4 font-semibold">Phone</th>
-                  <th className="py-3 px-4 font-semibold">Emergency Contact</th>
-                  <th className="py-3 px-4 font-semibold">Email</th>
-                  <th className="py-3 px-4 font-semibold">Business</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {players.map((p) => {
-                  const priv = privateById.get(p.uid);
-                  return (
-                    <tr key={p.uid} className="hover:bg-slate-50">
-                      <td className="py-3 px-4 font-semibold text-slate-900">
-                        {p.firstName} {p.lastName}
-                      </td>
-                      <td className="py-3 px-4 font-mono-tabular text-slate-600">{priv?.dob || '—'}</td>
-                      <td className="py-3 px-4 font-mono-tabular text-slate-700">{priv?.phone || '—'}</td>
-                      <td className="py-3 px-4 font-mono-tabular font-semibold text-red-700">
-                        {priv?.emergencyContact || '—'}
-                      </td>
-                      <td className="py-3 px-4 text-slate-600">{priv?.email || '—'}</td>
-                      <td className="py-3 px-4 text-slate-700">
-                        {(() => {
-                          const list = getPlayerBusinesses(p);
-                          if (list.length === 0) return '—';
-                          return (
-                            <div className="space-y-1.5">
-                              {list.map((biz, idx) => (
-                                <div key={biz.id || idx}>
-                                  <div className="font-semibold text-slate-900">
-                                    {biz.businessName}
-                                  </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-700" />
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Player Contact, Personal Info & Businesses
+                </h2>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
+                  <tr>
+                    <th className="py-3 px-4 font-semibold">Player</th>
+                    <th className="py-3 px-4 font-semibold">DOB / Age</th>
+                    <th className="py-3 px-4 font-semibold">Personal Phone</th>
+                    <th className="py-3 px-4 font-semibold">Emergency Contact</th>
+                    <th className="py-3 px-4 font-semibold">Email</th>
+                    <th className="py-3 px-4 font-semibold">Businesses</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredDirectoryPlayers.map((p) => {
+                    const priv = privateById.get(p.uid);
+                    const bList = getPlayerBusinesses(p);
+                    return (
+                      <tr key={p.uid} className="hover:bg-slate-50">
+                        <td className="py-3 px-4 font-semibold text-slate-900">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                              {p.approvedPhotoUrl ? (
+                                <img
+                                  src={p.approvedPhotoUrl}
+                                  alt={`${p.firstName} ${p.lastName}`}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <UserIcon className="w-4 h-4 text-slate-400" />
+                              )}
+                            </div>
+                            <div>
+                              <div>
+                                {p.firstName} {p.lastName}
+                              </div>
+                              <div className="text-[10px] text-slate-500 capitalize">
+                                {p.role} · {p.appearances} apps
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono-tabular text-slate-600">
+                          <div>{priv?.dob || '—'}</div>
+                          <div className="text-[10px] text-slate-400">Age {p.age}</div>
+                        </td>
+                        <td className="py-3 px-4 font-mono-tabular text-slate-700">
+                          {priv?.phone ? (
+                            <a href={`tel:${priv.phone}`} className="hover:underline text-emerald-700 font-medium">
+                              {priv.phone}
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-mono-tabular font-semibold text-red-700">
+                          {priv?.emergencyContact || '—'}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">
+                          {priv?.email ? (
+                            <a href={`mailto:${priv.email}`} className="hover:underline">
+                              {priv.email}
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="space-y-1.5">
+                            {bList.map((biz) => (
+                              <div
+                                key={biz.id || biz.businessName}
+                                className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800"
+                              >
+                                <div className="min-w-0">
+                                  <div className="font-semibold truncate">{biz.businessName}</div>
                                   {biz.category && (
-                                    <div className="text-[11px] text-slate-500">
-                                      {biz.category}
-                                    </div>
+                                    <div className="text-[10px] text-slate-500 truncate">{biz.category}</div>
                                   )}
                                 </div>
-                              ))}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditBusinessModal(p.uid, biz)}
+                                    title="Edit Business"
+                                    className="p-1 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-200"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingBusinessTarget({ playerUid: p.uid, business: biz })}
+                                    title="Delete Business"
+                                    className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+
+                            {bList.length < MAX_PLAYER_BUSINESSES && (
+                              <button
+                                type="button"
+                                onClick={() => openEditBusinessModal(p.uid, null)}
+                                className="text-[11px] text-emerald-700 hover:text-emerald-800 font-semibold inline-flex items-center gap-1 py-0.5"
+                              >
+                                <Plus className="w-3 h-3" /> Add Business
+                              </button>
+                            )}
+
+                            {bList.length === 0 && (
+                              <span className="text-slate-400 text-[11px]">No businesses</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* Admin Business Editor Modal */}
+      {editingBusinessTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 space-y-4 shadow-xl border border-slate-200 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-emerald-700" />
+                <h3 className="font-bold text-base text-slate-900">
+                  {editingBusinessTarget.business ? 'Edit Member Business' : 'Add Member Business'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeBusinessModal}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBusinessSubmit} className="space-y-4 text-xs">
+              {/* Member Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Member / Owner *
+                </label>
+                <select
+                  disabled={Boolean(editingBusinessTarget.business)}
+                  value={formPlayerUid}
+                  onChange={(e) => setFormPlayerUid(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:bg-slate-100"
+                >
+                  {players.map((p) => (
+                    <option key={p.uid} value={p.uid}>
+                      {p.firstName} {p.lastName} ({p.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Logo Upload */}
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="w-14 h-14 rounded-lg bg-white border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-1">
+                  {formBizLogoUrl ? (
+                    <img
+                      src={formBizLogoUrl}
+                      alt="Logo preview"
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <ImagePlus className="w-5 h-5 text-slate-400" />
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 font-semibold text-slate-800 cursor-pointer inline-flex items-center gap-1.5">
+                    <Upload className="w-3.5 h-3.5 text-emerald-700" />
+                    {uploadingBizLogo ? '...' : formBizLogoUrl ? 'Change Logo' : 'Upload Logo'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={uploadingBizLogo}
+                      onChange={handleUploadLogoFile}
+                      className="hidden"
+                    />
+                  </label>
+                  {formBizLogoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setFormBizLogoUrl('')}
+                      className="px-2.5 py-1.5 text-rose-700 hover:bg-rose-50 font-semibold rounded-lg"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Name & Category */}
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Business Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={80}
+                    value={formBizName}
+                    onChange={(e) => setFormBizName(e.target.value)}
+                    placeholder="e.g. Pacific Coast Dental"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Category
+                  </label>
+                  <BusinessCategorySelect
+                    value={formBizCategory}
+                    onChange={setFormBizCategory}
+                  />
+                </div>
+              </div>
+
+              {/* Tagline / Member Offer */}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Description / Member Offer
+                </label>
+                <input
+                  type="text"
+                  maxLength={160}
+                  value={formBizTagline}
+                  onChange={(e) => setFormBizTagline(e.target.value)}
+                  placeholder="Short description or club member promotion"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                />
+              </div>
+
+              {/* Phone, Website, Address */}
+              <div className="grid sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    maxLength={30}
+                    value={formBizPhone}
+                    onChange={(e) => setFormBizPhone(e.target.value)}
+                    placeholder="(604) 555-0142"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono-tabular focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Website</label>
+                  <input
+                    type="text"
+                    maxLength={300}
+                    value={formBizWebsite}
+                    onChange={(e) => setFormBizWebsite(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">City / Address</label>
+                  <input
+                    type="text"
+                    maxLength={120}
+                    value={formBizAddress}
+                    onChange={(e) => setFormBizAddress(e.target.value)}
+                    placeholder="North Vancouver"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+              </div>
+
+              {/* Promotion status */}
+              <label className="flex items-center gap-2 font-medium text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={formBizAllowPromotion}
+                  onChange={(e) => setFormBizAllowPromotion(e.target.checked)}
+                  className="rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+                />
+                <span>Allow featuring in club ads & announcements ribbon</span>
+              </label>
+
+              {/* Modal buttons */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={closeBusinessModal}
+                  className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingBusiness || uploadingBizLogo}
+                  className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-semibold inline-flex items-center gap-1.5 disabled:opacity-60"
+                >
+                  <Check className="w-4 h-4" />
+                  {savingBusiness ? 'Saving...' : 'Save Business'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Business Confirmation Dialog */}
+      {deletingBusinessTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-xl border border-red-200 text-slate-900">
+            <div className="flex items-center gap-2.5 text-red-700">
+              <Trash2 className="w-5 h-5 shrink-0" />
+              <h3 className="font-bold text-base">Delete Business?</h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to delete{' '}
+              <span className="font-semibold text-slate-900">
+                "{deletingBusinessTarget.business.businessName}"
+              </span>{' '}
+              for{' '}
+              <span className="font-semibold text-slate-900">
+                {playersById.get(deletingBusinessTarget.playerUid)?.firstName}{' '}
+                {playersById.get(deletingBusinessTarget.playerUid)?.lastName}
+              </span>
+              ? This action cannot be undone.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={closeBusinessModal}
+                disabled={savingBusiness}
+                className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteBusiness}
+                disabled={savingBusiness}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-60"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {savingBusiness ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

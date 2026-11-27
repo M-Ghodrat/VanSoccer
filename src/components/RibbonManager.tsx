@@ -21,7 +21,6 @@ import {
   Loader2,
   MapPin,
   Megaphone,
-  Newspaper,
   PanelTop,
   Pencil,
   Phone,
@@ -76,7 +75,6 @@ const TYPE_OPTIONS: {
   accentClass: string;
 }[] = [
   { id: 'business', label: 'Business', icon: Briefcase, accentClass: 'text-emerald-700' },
-  { id: 'news', label: 'News', icon: Newspaper, accentClass: 'text-sky-700' },
   { id: 'announcement', label: 'Announcement', icon: Megaphone, accentClass: 'text-amber-700' },
 ];
 
@@ -186,7 +184,6 @@ function configToLocalState(cfg: RibbonConfig): LocalRibbonState {
 }
 
 function buildSanitizedRibbonConfig(next: LocalRibbonState, uid: string): RibbonConfig {
-  const validTypes: RibbonItemType[] = ['business', 'news', 'announcement'];
   const sanitizedItems: RibbonItem[] = next.items
     .filter((it) => Boolean(it && typeof it.title === 'string' && it.title.trim().length > 0))
     .slice(0, MAX_RIBBON_ITEMS)
@@ -195,7 +192,7 @@ function buildSanitizedRibbonConfig(next: LocalRibbonState, uid: string): Ribbon
         typeof it.id === 'string' && it.id.trim().length > 0
           ? it.id.trim().slice(0, 64)
           : makeRibbonItemId();
-      const safeType: RibbonItemType = validTypes.includes(it.type) ? it.type : 'announcement';
+      const safeType: RibbonItemType = it.type === 'business' ? 'business' : 'announcement';
       const clean: RibbonItem = {
         id: safeId,
         type: safeType,
@@ -730,6 +727,14 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
     if (!biz || !biz.businessName.trim()) return;
     if (stateRef.current.items.length >= MAX_RIBBON_ITEMS) {
       setError(`Maximum ${MAX_RIBBON_ITEMS} ribbon items allowed.`);
+      return;
+    }
+
+    const normalizedTitle = biz.businessName.trim().toLowerCase();
+    const alreadyExists = stateRef.current.items.some(
+      (it) => it.linkedPlayerUid === player.uid && it.title.trim().toLowerCase() === normalizedTitle
+    );
+    if (alreadyExists) {
       return;
     }
 
@@ -1748,9 +1753,7 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
                       placeholder={
                         draftType === 'business'
                           ? 'Business name'
-                          : draftType === 'news'
-                            ? 'Headline'
-                            : 'Announcement title'
+                          : 'Announcement title'
                       }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
                     />

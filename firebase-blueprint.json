@@ -111,11 +111,11 @@
         },
         "business": {
           "type": "object",
-          "description": "Primary member business details (synced with businesses[0] for backward compatibility)."
+          "description": "Deprecated legacy single-business field; removed automatically on save once migrated to businesses."
         },
         "businesses": {
           "type": "array",
-          "description": "Optional list of up to 5 member businesses (id, businessName, category, tagline, phone, website, address, logoUrl, allowPromotion) editable in Profile for club spotlight promotion."
+          "description": "Canonical list of up to 5 member businesses (id, businessName, category, tagline, phone, website, address, logoUrl, allowPromotion) editable by the player or admin."
         },
         "createdAt": {
           "type": "string",

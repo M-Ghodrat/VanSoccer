@@ -7,7 +7,6 @@ import {
   Globe,
   MapPin,
   Megaphone,
-  Newspaper,
   Pause,
   Phone,
   Play,
@@ -27,6 +26,7 @@ import {
   RibbonSpeed,
   RibbonWidth,
 } from '../types';
+import { ClubBrandMark } from './ClubBrandMark';
 
 interface ClubRibbonProps {
   config: RibbonConfig;
@@ -47,12 +47,12 @@ const TYPE_META: Record<
     modalAccentText: 'text-emerald-700',
     icon: Briefcase,
   },
-  news: {
-    label: 'News',
-    modalAccentText: 'text-sky-700',
-    icon: Newspaper,
-  },
   announcement: {
+    label: 'Announcement',
+    modalAccentText: 'text-amber-700',
+    icon: Megaphone,
+  },
+  news: {
     label: 'Announcement',
     modalAccentText: 'text-amber-700',
     icon: Megaphone,
@@ -274,10 +274,29 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
   const safeStaticIdx = staticIndex % activeItems.length;
   const currentStaticItem = activeItems[safeStaticIdx];
 
+  const isSlim = height === 'slim';
+  const isTall = height === 'tall';
+
+  // Business logo sizes
+  const logoSizeClass = isSlim ? 'w-10 h-10' : isTall ? 'w-16 h-16' : 'w-14 h-14';
+
+  // Profile picture sizes: 80% - 90% of business logo size
+  // Standard: 48px avatar / 56px logo = 85.7%
+  // Tall: 56px avatar / 64px logo = 87.5%
+  // Slim: 34px avatar / 40px logo = 85.0%
+  const avatarSizeClass = isSlim ? 'w-[34px] h-[34px]' : isTall ? 'w-14 h-14' : 'w-12 h-12';
+
+  // Text regarding business info matches almost the exact same height as the business logo
+  const textBlockHeightClass = isSlim ? 'h-10' : isTall ? 'h-16' : 'h-14';
+
+  // Space of 1 ad between items as gap (giving a calm, spacious rhythm)
+  const adCardGapPx = isSlim ? 360 : isTall ? 540 : 460;
+  const estimatedCardWidth = isSlim ? 380 : isTall ? 580 : 480;
+
   const pxPerSec = SPEED_PX_PER_SEC[config.speed] || SPEED_PX_PER_SEC.normal;
-  const fallbackWidth = Math.max(1, repeatedItems.length) * 380;
+  const fallbackWidth = Math.max(1, repeatedItems.length) * (estimatedCardWidth + adCardGapPx);
   const effectiveHalfWidth = halfTrackWidth > 0 ? halfTrackWidth : fallbackWidth;
-  const durationSeconds = Math.max(4, effectiveHalfWidth / pxPerSec);
+  const durationSeconds = Math.max(6, effectiveHalfWidth / pxPerSec);
 
   const resolveMedia = (item: RibbonItem) => {
     const linkedPlayer = item.linkedPlayerUid ? playersById?.get(item.linkedPlayerUid) : undefined;
@@ -298,60 +317,6 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
       safeOwnerAvatar: hasOwnerAvatar ? safeOwnerAvatar : '',
       ownerName,
     };
-  };
-
-  const renderThumbnail = (
-    item: RibbonItem,
-    meta: (typeof TYPE_META)[RibbonItemType],
-    sizeClass = 'w-14 h-14'
-  ) => {
-    const { safeLogo, safeOwnerAvatar, ownerName } = resolveMedia(item);
-    const Icon = meta.icon;
-
-    if (safeLogo) {
-      return (
-        <div
-          className={`${sizeClass} rounded-lg bg-white border border-slate-200/80 overflow-hidden shrink-0 flex items-center justify-center p-1`}
-        >
-          <img
-            src={safeLogo}
-            alt={item.title}
-            referrerPolicy="no-referrer"
-            onError={() => setFailedImages((prev) => ({ ...prev, [`logo_${item.id}`]: true }))}
-            className="w-full h-full object-contain"
-          />
-        </div>
-      );
-    }
-
-    if (item.type === 'business' && safeOwnerAvatar) {
-      return (
-        <div
-          style={{ borderColor: cardBorderColor, backgroundColor: cardBgColor }}
-          className={`${sizeClass} rounded-lg border overflow-hidden shrink-0`}
-        >
-          <img
-            src={safeOwnerAvatar}
-            alt={ownerName || item.title}
-            referrerPolicy="no-referrer"
-            onError={() => setFailedImages((prev) => ({ ...prev, [`avatar_${item.id}`]: true }))}
-            className="w-full h-full object-cover"
-          />
-        </div>
-      );
-    }
-
-    return (
-      <div
-        style={{ borderColor: cardBorderColor, backgroundColor: cardBgColor }}
-        className={`${sizeClass} rounded-lg border shrink-0 flex items-center justify-center`}
-      >
-        <Icon
-          className={height === 'slim' ? 'w-4 h-4' : 'w-5 h-5 sm:w-6 sm:h-6'}
-          style={{ color: accentColor } as React.CSSProperties}
-        />
-      </div>
-    );
   };
 
   const renderContactLine = (item: RibbonItem, compact = false) => {
@@ -400,46 +365,204 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
     );
   };
 
-  const renderOwnerInline = (item: RibbonItem) => {
+  // Prominently renders the User Profile Picture & Name in FRONT of business ads,
+  // or the Perspolis Vancouver Community Logo & Brandmark in FRONT of announcements
+  const renderOwnerSectionInFront = (
+    item: RibbonItem,
+    avatarSize: string,
+    isSlimMode: boolean
+  ) => {
+    const isAnnouncement = item.type === 'announcement' || item.type === 'news';
     const { safeOwnerAvatar, ownerName } = resolveMedia(item);
-    if (!ownerName) return null;
+
+    if (isAnnouncement || !ownerName) {
+      return (
+        <div
+          style={{ borderColor: dividerColor }}
+          className="flex items-center gap-2.5 sm:gap-3 shrink-0 pr-3.5 sm:pr-4 border-r border-dashed select-none"
+        >
+          <ClubBrandMark
+            size={isSlimMode ? 'sm' : isTall ? 'md' : 'sm'}
+            tone={lightSurface ? 'light' : 'dark'}
+            showWordmark={true}
+          />
+        </div>
+      );
+    }
+
+    const initials =
+      ownerName
+        .split(' ')
+        .map((n) => n[0])
+        .filter(Boolean)
+        .join('')
+        .slice(0, 2)
+        .toUpperCase() || 'M';
 
     return (
-      <>
-        <span aria-hidden="true" style={{ color: dividerColor }} className="shrink-0">
-          ·
-        </span>
-        <span className="inline-flex items-center gap-1.5 min-w-0">
-          {safeOwnerAvatar && (
+      <div
+        style={{ borderColor: dividerColor }}
+        className="flex items-center gap-2.5 sm:gap-3 shrink-0 pr-3.5 sm:pr-4 border-r border-dashed"
+      >
+        <div className="relative shrink-0">
+          {safeOwnerAvatar ? (
             <img
               src={safeOwnerAvatar}
               alt={ownerName}
               referrerPolicy="no-referrer"
               onError={() => setFailedImages((prev) => ({ ...prev, [`avatar_${item.id}`]: true }))}
               style={{ borderColor: cardBorderColor }}
-              className="w-4 h-4 rounded-full object-cover border shrink-0"
+              className={`${avatarSize} rounded-full object-cover border-2 shadow-xs`}
             />
+          ) : (
+            <div
+              style={{
+                borderColor: cardBorderColor,
+                backgroundColor: cardBgColor,
+                color: textColor,
+              }}
+              className={`${avatarSize} rounded-full border-2 flex items-center justify-center font-bold text-xs shadow-xs`}
+            >
+              {initials}
+            </div>
           )}
-          <span style={{ color: mutedTextColor }} className="truncate">
+          <div
+            title="Club Member"
+            className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-600 border border-white flex items-center justify-center text-[8px] text-white font-black leading-none shadow-xs"
+          >
+            ✓
+          </div>
+        </div>
+
+        <div className="flex flex-col justify-center min-w-0">
+          <span
+            style={{ color: accentColor }}
+            className="text-[10px] font-bold uppercase tracking-wider leading-none"
+          >
+            Member
+          </span>
+          <span
+            style={{ color: textColor }}
+            className="text-xs sm:text-sm font-bold truncate max-w-[130px] mt-0.5 leading-snug"
+          >
             {ownerName}
           </span>
-        </span>
-      </>
+        </div>
+      </div>
+    );
+  };
+
+  // Business Logo
+  const renderBusinessLogo = (
+    item: RibbonItem,
+    meta: (typeof TYPE_META)[RibbonItemType],
+    logoSize: string,
+    isSlimMode: boolean
+  ) => {
+    const { safeLogo } = resolveMedia(item);
+    const Icon = meta.icon;
+
+    if (safeLogo) {
+      return (
+        <div
+          className={`${logoSize} rounded-xl bg-white border border-slate-200/90 overflow-hidden shrink-0 flex items-center justify-center p-1.5 shadow-xs`}
+        >
+          <img
+            src={safeLogo}
+            alt={item.title}
+            referrerPolicy="no-referrer"
+            onError={() => setFailedImages((prev) => ({ ...prev, [`logo_${item.id}`]: true }))}
+            className="w-full h-full object-contain"
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div
+        style={{ borderColor: cardBorderColor, backgroundColor: cardBgColor }}
+        className={`${logoSize} rounded-xl border shrink-0 flex items-center justify-center shadow-xs`}
+      >
+        <Icon
+          className={isSlimMode ? 'w-5 h-5' : 'w-6 h-6'}
+          style={{ color: accentColor } as React.CSSProperties}
+        />
+      </div>
+    );
+  };
+
+  // Text regarding business info (structured to match business logo height)
+  const renderBusinessInfoText = (
+    item: RibbonItem,
+    meta: (typeof TYPE_META)[RibbonItemType],
+    textHeight: string,
+    isSlimMode: boolean,
+    isTallMode: boolean
+  ) => {
+    const safeUrl = item.website ? normalizeSafeHttpUrl(item.website) : '';
+    const hasContact = Boolean(item.phone || item.address || safeUrl);
+
+    return (
+      <div
+        className={`${textHeight} flex flex-col justify-between min-w-0 flex-1 py-0.5`}
+      >
+        {/* Row 1: Title & Category */}
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            style={{ color: textColor }}
+            className={`font-bold truncate leading-tight ${
+              isTallMode ? 'text-base sm:text-lg' : isSlimMode ? 'text-xs' : 'text-sm sm:text-[15px]'
+            }`}
+          >
+            {item.title}
+          </span>
+          {item.category && !isSlimMode && (
+            <span
+              style={{ color: subtleTextColor }}
+              className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/10 shrink-0"
+            >
+              {item.category}
+            </span>
+          )}
+        </div>
+
+        {/* Row 2: Tagline / Description */}
+        <div
+          style={{ color: mutedTextColor }}
+          className={`leading-snug truncate ${isSlimMode ? 'text-[11px]' : 'text-xs'}`}
+        >
+          {item.text || item.category || meta.label}
+        </div>
+
+        {/* Row 3: Contact Line (Phone, Website, Address) */}
+        {!isSlimMode && (
+          <div className="min-w-0">
+            {hasContact ? (
+              renderContactLine(item, true)
+            ) : (
+              <span
+                style={{ color: subtleTextColor }}
+                className="text-[11px] leading-tight truncate block font-medium"
+              >
+                {item.type === 'business'
+                  ? 'Perspolis VFC Community Partner'
+                  : 'Perspolis Vancouver Announcement'}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     );
   };
 
   const renderMovingCard = (item: RibbonItem, keyStr: string) => {
     const meta = TYPE_META[item.type] || TYPE_META.announcement;
-    const isSlim = height === 'slim';
-    const isTall = height === 'tall';
 
     const cardSizeClasses = isSlim
-      ? 'gap-2.5 px-3 py-1.5 min-w-[240px] max-w-[380px]'
+      ? 'gap-3 px-3.5 py-2 min-w-[340px] max-w-[500px]'
       : isTall
-        ? 'gap-4 px-4 py-3 min-w-[340px] max-w-[520px]'
-        : 'gap-3.5 px-3.5 py-2.5 min-w-[300px] max-w-[460px]';
-
-    const thumbClass = isSlim ? 'w-9 h-9' : isTall ? 'w-16 h-16' : 'w-14 h-14';
+        ? 'gap-4 px-5 py-3.5 min-w-[460px] max-w-[660px]'
+        : 'gap-3.5 px-4 py-3 min-w-[420px] max-w-[600px]';
 
     return (
       <div
@@ -457,63 +580,16 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
           backgroundColor: cardBgColor,
           borderColor: cardBorderColor,
         }}
-        className={`flex items-center rounded-xl border text-left transition-opacity hover:opacity-95 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 ${cardSizeClasses}`}
+        className={`flex items-center rounded-2xl border text-left transition-transform hover:scale-[1.01] shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 shadow-xs ${cardSizeClasses}`}
       >
-        {renderThumbnail(item, meta, thumbClass)}
+        {/* 1. Member Profile Picture (80-90% of logo) & Name in FRONT */}
+        {renderOwnerSectionInFront(item, avatarSizeClass, isSlim)}
 
-        <div className={`min-w-0 flex-1 ${isSlim ? 'space-y-0.5' : 'space-y-1'}`}>
-          {!isSlim && (
-            <div className="flex items-center gap-1.5 text-[11px] leading-none min-w-0">
-              <span style={{ color: accentColor }} className="font-semibold shrink-0">
-                {meta.label}
-              </span>
-              {item.category && (
-                <>
-                  <span aria-hidden="true" style={{ color: dividerColor }} className="shrink-0">
-                    ·
-                  </span>
-                  <span style={{ color: subtleTextColor }} className="truncate">
-                    {item.category}
-                  </span>
-                </>
-              )}
-              {renderOwnerInline(item)}
-            </div>
-          )}
+        {/* 2. Business Logo */}
+        {renderBusinessLogo(item, meta, logoSizeClass, isSlim)}
 
-          <div className="flex items-baseline gap-2 min-w-0">
-            {isSlim && (
-              <span style={{ color: accentColor }} className="text-[10px] font-semibold shrink-0">
-                {meta.label}
-              </span>
-            )}
-            <span
-              style={{ color: textColor }}
-              className={`font-bold truncate leading-snug ${
-                isTall ? 'text-base' : isSlim ? 'text-xs' : 'text-sm'
-              }`}
-            >
-              {item.title}
-            </span>
-          </div>
-
-          {!isSlim && item.text && (
-            <div
-              style={{ color: mutedTextColor }}
-              className={`truncate leading-snug ${isTall ? 'text-sm' : 'text-xs'}`}
-            >
-              {item.text}
-            </div>
-          )}
-
-          {isSlim
-            ? item.text && (
-                <div style={{ color: mutedTextColor }} className="text-[11px] truncate leading-tight">
-                  {item.text}
-                </div>
-              )
-            : renderContactLine(item, true)}
-        </div>
+        {/* 3. Text regarding business info (same height as business logo) */}
+        {renderBusinessInfoText(item, meta, textBlockHeightClass, isSlim, isTall)}
       </div>
     );
   };
@@ -521,14 +597,6 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
   const selectedMeta = selectedItem ? TYPE_META[selectedItem.type] || TYPE_META.announcement : null;
   const selectedSafeUrl = selectedItem?.website ? normalizeSafeHttpUrl(selectedItem.website) : '';
   const selectedMedia = selectedItem ? resolveMedia(selectedItem) : null;
-
-  const isSlim = height === 'slim';
-  const isTall = height === 'tall';
-  const staticThumbClass = isSlim
-    ? 'w-9 h-9'
-    : isTall
-      ? 'w-16 h-16 sm:w-[72px] sm:h-[72px]'
-      : 'w-14 h-14 sm:w-16 sm:h-16';
 
   return (
     <>
@@ -563,7 +631,8 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
                         key={dupIndex}
                         ref={dupIndex === 0 ? firstHalfRef : undefined}
                         aria-hidden={dupIndex === 1 || undefined}
-                        className="flex items-center gap-4 pr-4 shrink-0"
+                        className="flex items-center shrink-0"
+                        style={{ gap: `${adCardGapPx}px`, paddingRight: `${adCardGapPx}px` }}
                       >
                         {repeatedItems.map(({ item, copyIdx }) =>
                           renderMovingCard(item, `${dupIndex}-${copyIdx}-${item.id}`)
@@ -605,74 +674,16 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
                           setSelectedItem(currentStaticItem);
                         }
                       }}
-                      className="flex-1 min-w-0 flex items-center gap-3.5 sm:gap-4 text-left group rounded-lg py-0.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2"
+                      className="flex-1 min-w-0 flex items-center gap-3.5 sm:gap-4 text-left group rounded-xl py-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2"
                     >
-                      {renderThumbnail(currentStaticItem, meta, staticThumbClass)}
+                      {/* 1. Member Profile Picture (80-90% of logo) & Name in FRONT */}
+                      {renderOwnerSectionInFront(currentStaticItem, avatarSizeClass, isSlim)}
 
-                      <div className={`min-w-0 flex-1 ${isSlim ? 'space-y-0.5' : 'space-y-1'}`}>
-                        {!isSlim && (
-                          <div className="flex items-center gap-1.5 text-[11px] leading-none min-w-0 flex-wrap">
-                            <span style={{ color: accentColor }} className="font-semibold shrink-0">
-                              {meta.label}
-                            </span>
-                            {currentStaticItem.category && (
-                              <>
-                                <span
-                                  aria-hidden="true"
-                                  style={{ color: dividerColor }}
-                                  className="shrink-0"
-                                >
-                                  ·
-                                </span>
-                                <span style={{ color: subtleTextColor }} className="truncate">
-                                  {currentStaticItem.category}
-                                </span>
-                              </>
-                            )}
-                            {renderOwnerInline(currentStaticItem)}
-                          </div>
-                        )}
+                      {/* 2. Business Logo */}
+                      {renderBusinessLogo(currentStaticItem, meta, logoSizeClass, isSlim)}
 
-                        <div className="flex items-baseline gap-2 min-w-0">
-                          {isSlim && (
-                            <span
-                              style={{ color: accentColor }}
-                              className="text-[10px] font-semibold shrink-0"
-                            >
-                              {meta.label}
-                            </span>
-                          )}
-                          <span
-                            style={{ color: textColor }}
-                            className={`font-bold group-hover:underline truncate leading-snug ${
-                              isTall
-                                ? 'text-base sm:text-lg'
-                                : isSlim
-                                  ? 'text-xs sm:text-sm'
-                                  : 'text-sm sm:text-base'
-                            }`}
-                          >
-                            {currentStaticItem.title}
-                          </span>
-                        </div>
-
-                        {currentStaticItem.text && (
-                          <div
-                            style={{ color: mutedTextColor }}
-                            className={`line-clamp-1 leading-snug ${
-                              isTall
-                                ? 'text-sm'
-                                : isSlim
-                                  ? 'text-[11px]'
-                                  : 'text-xs sm:text-sm'
-                            }`}
-                          >
-                            {currentStaticItem.text}
-                          </div>
-                        )}
-
-                        {!isSlim && renderContactLine(currentStaticItem, false)}
-                      </div>
+                      {/* 3. Text regarding business info (same height as business logo) */}
+                      {renderBusinessInfoText(currentStaticItem, meta, textBlockHeightClass, isSlim, isTall)}
                     </div>
                   );
                 })()}
@@ -727,9 +738,46 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
             className="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
           >
             <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3.5 min-w-0">
+              <div className="flex items-center gap-3.5 min-w-0">
+                {selectedItem.type === 'business' && selectedMedia.ownerName ? (
+                  <div className="flex items-center gap-2.5 pr-3.5 border-r border-slate-200 shrink-0">
+                    <div className="relative shrink-0">
+                      {selectedMedia.safeOwnerAvatar ? (
+                        <img
+                          src={selectedMedia.safeOwnerAvatar}
+                          alt={selectedMedia.ownerName}
+                          referrerPolicy="no-referrer"
+                          className="w-12 h-12 rounded-full object-cover border-2 border-slate-200 shadow-xs shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full border-2 border-slate-200 bg-slate-100 flex items-center justify-center font-bold text-xs text-slate-700 shadow-xs">
+                          {selectedMedia.ownerName.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <div
+                        title="Club Member"
+                        className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-600 border border-white flex items-center justify-center text-[8px] text-white font-black leading-none"
+                      >
+                        ✓
+                      </div>
+                    </div>
+                    <div className="flex flex-col justify-center min-w-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 leading-none">
+                        Member
+                      </span>
+                      <span className="text-xs font-bold text-slate-800 truncate max-w-[110px] mt-0.5">
+                        {selectedMedia.ownerName}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2.5 pr-3.5 border-r border-slate-200 shrink-0 select-none">
+                    <ClubBrandMark size="md" tone="light" showWordmark={true} />
+                  </div>
+                )}
+
                 {selectedMedia.safeLogo && (
-                  <div className="w-16 h-16 rounded-xl bg-slate-50 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-1.5">
+                  <div className="w-14 h-14 rounded-xl bg-slate-50 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-1.5 shadow-xs">
                     <img
                       src={selectedMedia.safeLogo}
                       alt={selectedItem.title}
@@ -738,6 +786,7 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
                     />
                   </div>
                 )}
+
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 text-xs">
                     <selectedMeta.icon
@@ -757,25 +806,10 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
                   </div>
                   <h2
                     id="ribbon-detail-title"
-                    className="font-display text-xl font-bold text-slate-900 mt-1"
+                    className="font-display text-xl font-bold text-slate-900 mt-1 truncate"
                   >
                     {selectedItem.title}
                   </h2>
-                  {selectedMedia.ownerName && (
-                    <div className="flex items-center gap-2 mt-1.5">
-                      {selectedMedia.safeOwnerAvatar && (
-                        <img
-                          src={selectedMedia.safeOwnerAvatar}
-                          alt={selectedMedia.ownerName}
-                          referrerPolicy="no-referrer"
-                          className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
-                        />
-                      )}
-                      <span className="text-xs font-medium text-slate-600">
-                        {selectedMedia.ownerName}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
 

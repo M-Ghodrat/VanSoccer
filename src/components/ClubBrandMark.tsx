@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export const CLUB_CREST_URL = '/assets/aistudio/Image-1_54f64afd.jpg';
+export const CLUB_CREST_URL = '/assets/aistudio/perspolis_crest.png';
 
 interface ClubBrandMarkProps {
   showWordmark?: boolean;
@@ -18,7 +18,7 @@ const SIZE_CONFIG = {
   },
   md: {
     crest: 'w-9 h-9',
-    gap: 'gap-2',
+    gap: 'gap-2.5',
     perspolis: 'text-[19px] tracking-[0.03em]',
     vancouver: 'text-[9px] tracking-[0.18em] mt-[1px]',
   },
@@ -42,24 +42,18 @@ export const ClubBrandMark: React.FC<ClubBrandMarkProps> = ({
   return (
     <span className={`inline-flex items-center ${cfg.gap} min-w-0 select-none ${className}`}>
       {!imgFailed ? (
-        <span
-          className={`${cfg.crest} shrink-0 flex items-center justify-center overflow-hidden ${
-            tone === 'dark' ? 'rounded-lg bg-white p-0.5 shadow-sm' : ''
-          }`}
-        >
+        <span className={`${cfg.crest} shrink-0 flex items-center justify-center`}>
           <img
             src={CLUB_CREST_URL}
             alt="Perspolis Vancouver crest"
             referrerPolicy="no-referrer"
             onError={() => setImgFailed(true)}
-            className={`w-full h-full object-contain ${
-              tone === 'light' ? 'mix-blend-multiply' : ''
-            }`}
+            className="w-full h-full object-contain drop-shadow-sm"
           />
         </span>
       ) : (
         <span
-          className={`${cfg.crest} rounded-md bg-[#C81018] text-white font-display font-bold text-sm flex items-center justify-center shrink-0`}
+          className={`${cfg.crest} rounded-lg bg-[#a70100] text-white font-display font-bold text-sm flex items-center justify-center shrink-0`}
         >
           P
         </span>
@@ -69,7 +63,7 @@ export const ClubBrandMark: React.FC<ClubBrandMarkProps> = ({
         <span className="flex flex-col leading-none min-w-0">
           <span
             className={`font-display font-bold uppercase leading-[0.86] whitespace-nowrap ${cfg.perspolis} ${
-              tone === 'dark' ? 'text-[#F87171]' : 'text-[#C81018]'
+              tone === 'dark' ? 'text-[#F87171]' : 'text-[#A70100]'
             }`}
           >
             PERSPOLIS

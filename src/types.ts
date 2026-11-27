@@ -196,15 +196,58 @@ export function getPlayerBusinesses(
   profile?: Pick<PlayerProfile, 'business' | 'businesses'> | null
 ): PlayerBusinessInfo[] {
   if (!profile) return [];
+  const list: PlayerBusinessInfo[] = [];
+
   if (Array.isArray(profile.businesses)) {
-    return profile.businesses
-      .filter((b): b is PlayerBusinessInfo => Boolean(b && typeof b.businessName === 'string' && b.businessName.trim().length > 0))
-      .slice(0, MAX_PLAYER_BUSINESSES);
+    list.push(
+      ...profile.businesses.filter(
+        (b): b is PlayerBusinessInfo =>
+          Boolean(b && typeof b.businessName === 'string' && b.businessName.trim().length > 0)
+      )
+    );
+  } else if (
+    profile.business &&
+    typeof profile.business.businessName === 'string' &&
+    profile.business.businessName.trim().length > 0
+  ) {
+    list.push(profile.business);
   }
-  if (profile.business && typeof profile.business.businessName === 'string' && profile.business.businessName.trim().length > 0) {
-    return [profile.business];
+
+  // Deduplicate by ID and normalized business name
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  const deduped: PlayerBusinessInfo[] = [];
+
+  for (const b of list) {
+    const idKey = b.id && b.id.trim() ? b.id.trim() : null;
+    const nameKey = b.businessName.trim().toLowerCase();
+
+    if (idKey && seenIds.has(idKey)) continue;
+
+    if (seenNames.has(nameKey)) {
+      // Merge newer details into the existing entry if previous was incomplete
+      const existingIdx = deduped.findIndex(
+        (d) => d.businessName.trim().toLowerCase() === nameKey
+      );
+      if (existingIdx !== -1) {
+        const prev = deduped[existingIdx];
+        if (!prev.website && b.website) prev.website = b.website;
+        if (!prev.phone && b.phone) prev.phone = b.phone;
+        if (!prev.logoUrl && b.logoUrl) prev.logoUrl = b.logoUrl;
+        if (!prev.tagline && b.tagline) prev.tagline = b.tagline;
+        if (!prev.address && b.address) prev.address = b.address;
+        if (!prev.category && b.category) prev.category = b.category;
+      }
+      continue;
+    }
+
+    if (idKey) seenIds.add(idKey);
+    seenNames.add(nameKey);
+    deduped.push({ ...b });
+    if (deduped.length >= MAX_PLAYER_BUSINESSES) break;
   }
-  return [];
+
+  return deduped;
 }
 
 export function findPlayerBusinessLogo(

@@ -93,6 +93,16 @@ service cloud.firestore {
         && biz.allowPromotion is bool;
     }
 
+    function isValidPlayerBusinessesList(businesses) {
+      return businesses is list
+        && businesses.size() <= 5
+        && (businesses.size() == 0 || isValidPlayerBusiness(businesses[0]))
+        && (businesses.size() < 2 || isValidPlayerBusiness(businesses[1]))
+        && (businesses.size() < 3 || isValidPlayerBusiness(businesses[2]))
+        && (businesses.size() < 4 || isValidPlayerBusiness(businesses[3]))
+        && (businesses.size() < 5 || isValidPlayerBusiness(businesses[4]));
+    }
+
     function isValidPlayer(data) {
       return data.keys().hasAll([
           'uid', 'firstName', 'lastName', 'age', 'favoritePositions',
@@ -122,15 +132,7 @@ service cloud.firestore {
         && data.role in ['player', 'manager', 'admin']
         && data.appearances is number && data.appearances >= 0 && data.appearances <= 10000
         && (!('business' in data) || data.business == null || isValidPlayerBusiness(data.business))
-        && (!('businesses' in data) || data.businesses == null || (
-          data.businesses is list
-          && data.businesses.size() <= 5
-          && (data.businesses.size() == 0 || isValidPlayerBusiness(data.businesses[0]))
-          && (data.businesses.size() < 2 || isValidPlayerBusiness(data.businesses[1]))
-          && (data.businesses.size() < 3 || isValidPlayerBusiness(data.businesses[2]))
-          && (data.businesses.size() < 4 || isValidPlayerBusiness(data.businesses[3]))
-          && (data.businesses.size() < 5 || isValidPlayerBusiness(data.businesses[4]))
-        ))
+        && (!('businesses' in data) || data.businesses == null || isValidPlayerBusinessesList(data.businesses))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -468,23 +470,33 @@ service cloud.firestore {
         );
       allow update: if isValidId(uid)
         && isVerifiedUser()
-        && isValidPlayer(incoming())
         && incoming().uid == existing().uid
-        && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          isAdmin() ||
           (
-            isOwner(uid)
-            && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'age', 'favoritePositions', 'photoStatus', 'business', 'businesses', 'updatedAt'])
-            && incoming().role == existing().role
-            && incoming().approvedPhotoUrl == existing().approvedPhotoUrl
-            && incoming().appearances == existing().appearances
-            && (incoming().photoStatus == existing().photoStatus || incoming().photoStatus in ['none', 'pending'])
+            (isOwner(uid) || isAdmin())
+            && incoming().diff(existing()).affectedKeys().hasOnly(['businesses', 'business', 'updatedAt'])
+            && (!('business' in incoming()) || incoming().business == null || isValidPlayerBusiness(incoming().business))
+            && (!('businesses' in incoming()) || incoming().businesses == null || isValidPlayerBusinessesList(incoming().businesses))
           ) ||
           (
-            isManager()
-            && incoming().diff(existing()).affectedKeys().hasOnly(['appearances', 'updatedAt'])
+            isValidPlayer(incoming())
+            && incoming().createdAt == existing().createdAt
+            && (
+              isAdmin() ||
+              (
+                isOwner(uid)
+                && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'age', 'favoritePositions', 'photoStatus', 'business', 'businesses', 'updatedAt'])
+                && incoming().role == existing().role
+                && incoming().approvedPhotoUrl == existing().approvedPhotoUrl
+                && incoming().appearances == existing().appearances
+                && (incoming().photoStatus == existing().photoStatus || incoming().photoStatus in ['none', 'pending'])
+              ) ||
+              (
+                isManager()
+                && incoming().diff(existing()).affectedKeys().hasOnly(['appearances', 'updatedAt'])
+              )
+            )
           )
         );
       allow delete: if isValidId(uid) && isVerifiedUser() && (isOwner(uid) || isAdmin());

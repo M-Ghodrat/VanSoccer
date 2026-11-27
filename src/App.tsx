@@ -539,6 +539,17 @@ export default function App() {
     [activeMatchVotes, user]
   );
 
+  const pendingPhotosCount = useMemo(() => {
+    if (!isAdmin) return 0;
+    const pendingInSubmissions = allPhotoSubmissions.filter((s) => s.status === 'pending');
+    const orphanedPending = players.filter(
+      (p) =>
+        p.photoStatus === 'pending' &&
+        !pendingInSubmissions.some((sub) => sub.uid === p.uid)
+    );
+    return pendingInSubmissions.length + orphanedPending.length;
+  }, [isAdmin, allPhotoSubmissions, players]);
+
   // Ensure unpaid members are removed from active match Coming votes & team sheets
   useEffect(() => {
     if (
@@ -816,9 +827,12 @@ export default function App() {
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open menu"
               title="Menu"
-              className="p-2 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors"
+              className="relative p-2 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors"
             >
               <Menu className="w-5 h-5" />
+              {isAdmin && pendingPhotosCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white animate-pulse" />
+              )}
             </button>
           )}
           <button
@@ -879,6 +893,7 @@ export default function App() {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
                 const isDisabled = Boolean(item.disabled);
+                const showAdminPhotoBadge = item.id === 'admin' && pendingPhotosCount > 0;
                 return (
                   <button
                     key={item.id}
@@ -895,37 +910,49 @@ export default function App() {
                     )}`}
                   >
                     <span className="flex items-center gap-3 min-w-0">
-                      <Icon
-                        className={`w-4 h-4 shrink-0 ${getNavIconClasses(
-                          item.tier,
-                          isActive,
-                          isDisabled
-                        )}`}
-                      />
+                      <span className="relative">
+                        <Icon
+                          className={`w-4 h-4 shrink-0 ${getNavIconClasses(
+                            item.tier,
+                            isActive,
+                            isDisabled
+                          )}`}
+                        />
+                        {showAdminPhotoBadge && (
+                          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 animate-pulse ring-1 ring-white" />
+                        )}
+                      </span>
                       <span className="truncate">{item.label}</span>
                     </span>
-                    {item.tier === 'manager' && (
-                      <span
-                        className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
-                          isActive
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        MGR
-                      </span>
-                    )}
-                    {item.tier === 'admin' && (
-                      <span
-                        className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
-                          isActive
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        ADM
-                      </span>
-                    )}
+                    <span className="flex items-center gap-1.5 shrink-0">
+                      {showAdminPhotoBadge && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-500 text-white font-mono-tabular animate-pulse leading-none">
+                          {pendingPhotosCount}
+                        </span>
+                      )}
+                      {item.tier === 'manager' && (
+                        <span
+                          className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                            isActive
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          MGR
+                        </span>
+                      )}
+                      {item.tier === 'admin' && (
+                        <span
+                          className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                            isActive
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          ADM
+                        </span>
+                      )}
+                    </span>
                   </button>
                 );
               })}
@@ -1028,6 +1055,7 @@ export default function App() {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               const isDisabled = Boolean(item.disabled);
+              const showAdminPhotoBadge = item.id === 'admin' && pendingPhotosCount > 0;
               return (
                 <button
                   key={item.id}
@@ -1040,47 +1068,66 @@ export default function App() {
                   title={
                     isDisabled
                       ? `${item.label} (Inactive)`
-                      : item.tier === 'manager'
-                        ? `${item.label} (Manager)`
-                        : item.tier === 'admin'
-                          ? `${item.label} (Admin)`
-                          : item.label
+                      : showAdminPhotoBadge
+                        ? `Admin — ${pendingPhotosCount} photo${pendingPhotosCount > 1 ? 's' : ''} waiting for review`
+                        : item.tier === 'manager'
+                          ? `${item.label} (Manager)`
+                          : item.tier === 'admin'
+                            ? `${item.label} (Admin)`
+                            : item.label
                   }
                   aria-label={item.label}
-                  className={`w-full flex items-center rounded-lg text-sm transition-colors ${
+                  className={`w-full flex items-center rounded-lg text-sm transition-colors relative ${
                     sidebarCollapsed ? 'justify-center p-2.5' : 'justify-between gap-2 px-3 py-2'
                   } ${getNavButtonClasses(item.tier, isActive, isDisabled)}`}
                 >
                   <span className={`flex items-center min-w-0 ${sidebarCollapsed ? '' : 'gap-2.5'}`}>
-                    <Icon
-                      className={`w-[18px] h-[18px] shrink-0 ${getNavIconClasses(
-                        item.tier,
-                        isActive,
-                        isDisabled
-                      )}`}
-                    />
+                    <span className="relative inline-flex items-center justify-center">
+                      <Icon
+                        className={`w-[18px] h-[18px] shrink-0 ${getNavIconClasses(
+                          item.tier,
+                          isActive,
+                          isDisabled
+                        )}`}
+                      />
+                      {showAdminPhotoBadge && (
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white animate-pulse" />
+                      )}
+                    </span>
                     {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
                   </span>
-                  {!sidebarCollapsed && item.tier === 'manager' && (
-                    <span
-                      className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
-                        isActive
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-slate-100 text-slate-500'
-                      }`}
-                    >
-                      MGR
-                    </span>
-                  )}
-                  {!sidebarCollapsed && item.tier === 'admin' && (
-                    <span
-                      className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
-                        isActive
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      ADM
+                  {!sidebarCollapsed && (
+                    <span className="flex items-center gap-1.5 shrink-0">
+                      {showAdminPhotoBadge && (
+                        <span
+                          title={`${pendingPhotosCount} photo${pendingPhotosCount > 1 ? 's' : ''} waiting for review`}
+                          className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-500 text-white font-mono-tabular animate-pulse leading-none"
+                        >
+                          {pendingPhotosCount}
+                        </span>
+                      )}
+                      {item.tier === 'manager' && (
+                        <span
+                          className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                            isActive
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          MGR
+                        </span>
+                      )}
+                      {item.tier === 'admin' && (
+                        <span
+                          className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                            isActive
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          ADM
+                        </span>
+                      )}
                     </span>
                   )}
                 </button>
@@ -1372,6 +1419,7 @@ export default function App() {
                 photoSubmissions={allPhotoSubmissions}
                 ratings={ratings}
                 matches={matches}
+                initialSubTab={pendingPhotosCount > 0 ? 'photos' : 'directory'}
               />
             )}
 

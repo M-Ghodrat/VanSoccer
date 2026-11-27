@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { deleteUser, EmailAuthProvider, reauthenticateWithCredential, User } from 'firebase/auth';
-import { deleteDoc, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
+import { deleteDoc, deleteField, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 import {
   AlertTriangle,
   Briefcase,
@@ -21,7 +21,6 @@ import {
 } from 'lucide-react';
 import { BOOTSTRAPPED_ADMIN_EMAIL, db, handleFirestoreError, OperationType } from '../firebase';
 import {
-  BUSINESS_CATEGORY_SUGGESTIONS,
   getPlayerBusinesses,
   MAX_PLAYER_BUSINESSES,
   normalizeSafeHttpUrl,
@@ -35,6 +34,7 @@ import {
 } from '../types';
 import { calculateAgeFromDob } from '../utils/clubUtils';
 import { compressBrandImageFile } from '../utils/imageUpload';
+import { BusinessCategorySelect } from './BusinessCategorySelect';
 import { CircularPhotoCropper, CroppedPhotoResult } from './CircularPhotoCropper';
 
 function makeBusinessId(): string {
@@ -380,7 +380,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
     const payload = {
       businesses: sanitized,
-      business: sanitized[0] ?? null,
+      business: deleteField(),
       updatedAt: serverTimestamp(),
     };
 
@@ -391,7 +391,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       if (code === 'permission-denied') {
         await user.getIdToken(true);
         await updateDoc(doc(db, 'players', user.uid), {
-          ...payload,
+          businesses: sanitized,
+          business: deleteField(),
           updatedAt: serverTimestamp(),
         });
         return;
@@ -455,6 +456,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const cleanName = bizName.trim().slice(0, 80);
     if (!cleanName) {
       setError('Business name is required.');
+      return;
+    }
+
+    const normalizedTargetName = cleanName.toLowerCase();
+    const hasDuplicateName = savedBusinesses.some((b, idx) => {
+      if (editingBusinessIndex !== 'new' && idx === editingBusinessIndex) return false;
+      return b.businessName.trim().toLowerCase() === normalizedTargetName;
+    });
+    if (hasDuplicateName) {
+      setError(`You already have a business named "${cleanName}". Please choose a distinct name.`);
       return;
     }
 
@@ -1069,20 +1080,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Category
                     </label>
-                    <input
-                      type="text"
-                      list="business-category-options"
-                      maxLength={50}
+                    <BusinessCategorySelect
                       value={bizCategory}
-                      onChange={(e) => setBizCategory(e.target.value)}
-                      placeholder="e.g. Real Estate, Auto, Dental"
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      onChange={setBizCategory}
                     />
-                    <datalist id="business-category-options">
-                      {BUSINESS_CATEGORY_SUGGESTIONS.map((cat) => (
-                        <option key={cat} value={cat} />
-                      ))}
-                    </datalist>
                   </div>
                 </div>
 
