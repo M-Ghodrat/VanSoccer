@@ -81,13 +81,27 @@ export function getIsoWeekKey(date: Date = new Date()): string {
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
+const clubMonthFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit',
+});
+
 export function getMonthKey(dateInput: Date | string = new Date()): string {
-  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
-  if (Number.isNaN(d.getTime())) {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  }
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  const parts = clubMonthFormatter.formatToParts(Number.isNaN(date.getTime()) ? new Date() : date);
+  return `${parts.find((part) => part.type === 'year')?.value}-${parts.find((part) => part.type === 'month')?.value}`;
+}
+
+export function getAttendanceWindow(
+  match: Pick<DropInMatch, 'status' | 'kickoffIso' | 'pollOpensAtIso' | 'pollLocksAtIso'>,
+  now: number
+) {
+  const kickoff = Date.parse(match.kickoffIso);
+  const canWithdraw = match.status !== 'completed' && now < kickoff;
+  return {
+    canWithdraw,
+    canJoin: canWithdraw && match.status === 'open'
+      && Date.parse(match.pollOpensAtIso) <= now && now < Date.parse(match.pollLocksAtIso),
+  };
 }
 
 export function computeWeeklyScheduleDates(settings: Pick<ClubSettings, 'pollOpenDay' | 'pollOpenTime' | 'pollLockDay' | 'pollLockTime' | 'matchDay' | 'matchTime'>) {

@@ -1,7 +1,7 @@
+import { requireFormationManager } from '../../lib/clubBackend';
 import {
   analyzeFormationRequest,
   ApiHttpError,
-  verifyFirebaseBearerToken,
 } from '../../lib/formationAnalyzer';
 
 export default async function handler(req: Request): Promise<Response> {
@@ -10,7 +10,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    await verifyFirebaseBearerToken(req.headers.get('authorization'));
+    await requireFormationManager(req.headers.get('authorization'));
     const body = await req.json();
     const formation = await analyzeFormationRequest(body);
     return Response.json(formation, { status: 200 });
@@ -19,8 +19,6 @@ export default async function handler(req: Request): Promise<Response> {
       return Response.json({ error: error.message }, { status: error.status });
     }
     console.error('Netlify formation analysis failed:', error);
-    const message =
-      error instanceof Error ? error.message : 'Failed to generate AI formation.';
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json({ error: 'Failed to generate AI formation.' }, { status: 500 });
   }
 }

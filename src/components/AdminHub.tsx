@@ -1,6 +1,7 @@
+import { savePlayerBusinesses } from '../utils/playerBusinesses';
 import React, { useEffect, useMemo, useState } from 'react';
 import { User } from 'firebase/auth';
-import { deleteDoc, deleteField, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, deleteDoc, doc, getDoc, serverTimestamp, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import {
   Briefcase,
   Camera,
@@ -123,6 +124,33 @@ export const AdminHub: React.FC<AdminHubProps> = ({
   const [formBizLogoUrl, setFormBizLogoUrl] = useState('');
   const [formBizAllowPromotion, setFormBizAllowPromotion] = useState(true);
 
+  const [privateBusinesses, setPrivateBusinesses] = useState<Map<string, PlayerBusinessInfo[]> | null>(null);
+  useEffect(() => onSnapshot(collection(db, 'player_business_private'), (snapshot) => {
+    setPrivateBusinesses(new Map(snapshot.docs.map((record) => [record.id, record.data().businesses])));
+  }, (error) => setError(error.message)), []);
+  const businessEntries = (player: PlayerProfile) => getPlayerBusinesses({
+    businesses: [...getPlayerBusinesses(player), ...(privateBusinesses?.get(player.uid) ?? [])],
+  });
+
+  const [approvedUids, setApprovedUids] = useState<Set<string>>(new Set());
+  useEffect(() => onSnapshot(collection(db, 'members'), (snapshot) => {
+    setApprovedUids(new Set(snapshot.docs.map((record) => record.id)));
+  }, (error) => setError(error.message)), []);
+
+  const changeMembership = async (uid: string, approve: boolean) => {
+    setError(null);
+    try {
+      const member = doc(db, 'members', uid);
+      if (approve) {
+        await setDoc(member, { approvedBy: user.uid, approvedAt: serverTimestamp() });
+      } else {
+        await deleteDoc(member);
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not update membership.');
+    }
+  };
+
   const playersById = useMemo(() => new Map(players.map((p) => [p.uid, p])), [players]);
   const privateById = useMemo(() => new Map(privateInfos.map((i) => [i.uid, i])), [privateInfos]);
 
@@ -209,7 +237,7 @@ export const AdminHub: React.FC<AdminHubProps> = ({
       const email = (priv?.email || '').toLowerCase();
       const phone = (priv?.phone || '').toLowerCase();
       const em = (priv?.emergencyContact || '').toLowerCase();
-      const bList = getPlayerBusinesses(p);
+      const bList = businessEntries(p);
       const bNames = bList.map((b) => b.businessName.toLowerCase()).join(' ');
       return (
         name.includes(term) ||
@@ -548,7 +576,7 @@ export const AdminHub: React.FC<AdminHubProps> = ({
       return;
     }
 
-    const currentBusinesses = getPlayerBusinesses(targetPlayer);
+    const currentBusinesses = businessEntries(targetPlayer);
     const isNew = !editingBusinessTarget?.business;
 
     if (isNew && currentBusinesses.length >= MAX_PLAYER_BUSINESSES) {
@@ -587,11 +615,8 @@ export const AdminHub: React.FC<AdminHubProps> = ({
     setSavingBusiness(true);
     setError(null);
     try {
-      await updateDoc(doc(db, 'players', formPlayerUid), {
-        businesses: nextList,
-        business: deleteField(),
-        updatedAt: serverTimestamp(),
-      });
+      if (!privateBusinesses) throw new Error('Business details are still loading.');
+      await savePlayerBusinesses(formPlayerUid, nextList);
 
       setNotice(
         isNew
@@ -619,14 +644,11 @@ export const AdminHub: React.FC<AdminHubProps> = ({
     setSavingBusiness(true);
     setError(null);
     try {
-      const current = getPlayerBusinesses(targetPlayer);
+      const current = businessEntries(targetPlayer);
       const nextList = current.filter((b) => b.id !== business.id);
 
-      await updateDoc(doc(db, 'players', playerUid), {
-        businesses: nextList,
-        business: deleteField(),
-        updatedAt: serverTimestamp(),
-      });
+      if (!privateBusinesses) throw new Error('Business details are still loading.');
+      await savePlayerBusinesses(playerUid, nextList);
 
       setNotice(
         `Deleted "${business.businessName}" for ${targetPlayer.firstName} ${targetPlayer.lastName}.`
@@ -967,6 +989,12 @@ export const AdminHub: React.FC<AdminHubProps> = ({
                             <option value="manager">Manager</option>
                             <option value="admin">Admin</option>
                           </select>
+                          {p.role === 'player' && !isTest && (
+                            <button type="button" className="ml-2 text-xs underline"
+                              onClick={() => void changeMembership(p.uid, !approvedUids.has(p.uid))}>
+                              {approvedUids.has(p.uid) ? 'Revoke access' : 'Approve member'}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1020,7 +1048,7 @@ export const AdminHub: React.FC<AdminHubProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredDirectoryPlayers.map((p) => {
                     const priv = privateById.get(p.uid);
-                    const bList = getPlayerBusinesses(p);
+                    const bList = businessEntries(p);
                     return (
                       <tr key={p.uid} className="hover:bg-slate-50">
                         <td className="py-3 px-4 font-semibold text-slate-900">

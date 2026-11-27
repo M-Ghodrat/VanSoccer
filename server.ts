@@ -1,3 +1,5 @@
+import { updateAttendance } from './lib/attendance';
+import { requireFormationManager } from './lib/clubBackend';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -5,7 +7,6 @@ import dotenv from 'dotenv';
 import {
   analyzeFormationRequest,
   ApiHttpError,
-  verifyFirebaseBearerToken,
 } from './lib/formationAnalyzer';
 
 dotenv.config();
@@ -23,9 +24,23 @@ async function startServer() {
     res.json({ status: 'ok', service: 'perspolis-vancouver' });
   });
 
+  app.post('/api/attendance', async (req, res) => {
+    try {
+      await updateAttendance(req.headers.authorization, req.body);
+      res.status(204).end();
+    } catch (error) {
+      if (error instanceof ApiHttpError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      console.error('Attendance update failed:', error);
+      res.status(500).json({ error: 'Could not update attendance.' });
+    }
+  });
+
   app.post('/api/formation/analyze', async (req, res) => {
     try {
-      await verifyFirebaseBearerToken(req.headers.authorization);
+      await requireFormationManager(req.headers.authorization);
       const formation = await analyzeFormationRequest(req.body);
       res.json(formation);
     } catch (error) {
@@ -34,9 +49,7 @@ async function startServer() {
         return;
       }
       console.error('Formation analysis failed:', error);
-      const message =
-        error instanceof Error ? error.message : 'Failed to generate AI formation.';
-      res.status(500).json({ error: message });
+      res.status(500).json({ error: 'Failed to generate AI formation.' });
     }
   });
 

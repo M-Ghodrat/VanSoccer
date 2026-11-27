@@ -1,5 +1,4 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import firebaseConfig from '../firebase-applet-config.json';
 
 export interface AnalyzePlayerInput {
   uid: string;
@@ -28,12 +27,6 @@ export class ApiHttpError extends Error {
   }
 }
 
-export interface VerifiedFirebaseUser {
-  uid: string;
-  email: string;
-  emailVerified: boolean;
-}
-
 const POSITION_DEFAULT_COORDS: Record<string, { x: number; y: number }> = {
   GK: { x: 50, y: 88 },
   LB: { x: 18, y: 70 },
@@ -50,65 +43,6 @@ const POSITION_DEFAULT_COORDS: Record<string, { x: number; y: number }> = {
 };
 
 const VALID_GOALIE_OPTIONS = new Set(['none', 'willing', 'only_goalie']);
-
-/**
- * Verifies a Firebase Auth Bearer ID token via Google Identity Toolkit
- * (validates signature, expiry, revocation, project audience, and email verification).
- */
-export async function verifyFirebaseBearerToken(
-  authHeader: string | null | undefined
-): Promise<VerifiedFirebaseUser> {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new ApiHttpError(401, 'Sign in required to generate AI formations.');
-  }
-
-  const idToken = authHeader.slice('Bearer '.length).trim();
-  if (!idToken || idToken.length > 8192) {
-    throw new ApiHttpError(401, 'Invalid authentication token.');
-  }
-
-  const apiKey = firebaseConfig.apiKey;
-  if (!apiKey) {
-    throw new ApiHttpError(500, 'Firebase configuration is unavailable on server.');
-  }
-
-  const lookupResp = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken }),
-    }
-  );
-
-  if (!lookupResp.ok) {
-    throw new ApiHttpError(401, 'Session expired or invalid. Please refresh and sign in again.');
-  }
-
-  const data = (await lookupResp.json()) as {
-    users?: Array<{
-      localId?: string;
-      email?: string;
-      emailVerified?: boolean;
-      disabled?: boolean;
-    }>;
-  };
-
-  const userRecord = data.users?.[0];
-  if (!userRecord?.localId || userRecord.disabled) {
-    throw new ApiHttpError(401, 'Account could not be verified.');
-  }
-
-  if (!userRecord.emailVerified) {
-    throw new ApiHttpError(403, 'Verified email required to generate AI formations.');
-  }
-
-  return {
-    uid: userRecord.localId,
-    email: userRecord.email || '',
-    emailVerified: Boolean(userRecord.emailVerified),
-  };
-}
 
 function sanitizeIncomingRequest(rawBody: unknown): AnalyzeRequestBody {
   if (!rawBody || typeof rawBody !== 'object') {
@@ -337,7 +271,25 @@ function sanitizeFormationOutput(
 }
 
 export async function analyzeFormationRequest(rawBody: unknown) {
+  if (process.env.ENABLE_AI_FORMATIONS !== 'true') {
+    throw new ApiHttpError(503, 'AI formations are disabled. Use the manual team builder.');
+  }
   const body = sanitizeIncomingRequest(rawBody);
+  const playerAliases = new Map(body.players.map((player, index) => [player.uid, `player_${index + 1}`]));
+  if (playerAliases.size !== body.players.length) throw new ApiHttpError(400, 'Duplicate players.');
+  const originalIds = new Map([...playerAliases].map(([uid, alias]) => [alias, uid]));
+  const positions = (values: string[]) => values.filter((value) => Object.hasOwn(POSITION_DEFAULT_COORDS, value));
+  const lineupInputs = body.players.map((player) => ({
+    uid: playerAliases.get(player.uid),
+    goalieOption: player.goalieOption,
+    favoritePositions: positions(player.favoritePositions),
+    assessedPositions: positions(player.assessedPositions),
+    avgSkill: player.avgSkill,
+    avgStamina: player.avgStamina,
+    pastTeammateCounts: Object.fromEntries([...playerAliases].flatMap(([uid, alias]) =>
+      player.pastTeammateCounts[uid] > 0 ? [[alias, player.pastTeammateCounts[uid]]] : []
+    )),
+  }));
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -354,7 +306,7 @@ export async function analyzeFormationRequest(rawBody: unknown) {
   });
 
   const prompt = `You are a head tactician for a Vancouver drop-in soccer club.
-Analyze the ${body.players.length} attending players for "${body.matchTitle}" and split them into exactly ${body.teamCount} balanced teams (${body.teamColors.join(', ')}).
+Analyze the ${body.players.length} attending players and split them into exactly ${body.teamCount} balanced teams.
 
 HARD CONSTRAINTS & GOALS:
 1. Every single player UID in the input list MUST appear in exactly one team. Do not omit or duplicate any player.
@@ -364,7 +316,7 @@ HARD CONSTRAINTS & GOALS:
    - If a team does not have an "only_goalie" player, assign a player with goalieOption === "willing" to "GK" (pitchX: 50, pitchY: 88).
    - Players with goalieOption === "none" should NOT be placed in GK unless no willing/only_goalie players exist at all.
 4. Balance across teams:
-   - Equalize average skill (0-100 scale), average stamina (0-100 scale), and average age across all ${body.teamCount} teams.
+   - Equalize average skill (0-100 scale) and average stamina (0-100 scale) across all ${body.teamCount} teams.
    - Match players to their manager-assessed positions first, then their favorite positions.
    - Promote fresh chemistry: look at each player's "pastTeammateCounts" map and try to group players who have low shared match counts (0 or low numbers) together rather than keeping the exact same cliques every week.
 5. Pitch Coordinates (for each team's 2D tactical field view):
@@ -373,7 +325,7 @@ HARD CONSTRAINTS & GOALS:
    - Use standard position codes: GK, LB, CB, RB, CDM, LM, CM, RM, CAM, LW, RW, ST.
 
 ATTENDING PLAYERS DATA:
-${JSON.stringify(body.players, null, 2)}`;
+${JSON.stringify(lineupInputs)}`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-4-hydrogen',
@@ -427,6 +379,9 @@ ${JSON.stringify(body.players, null, 2)}`;
   });
 
   const rawText = (response.text ?? '{}').trim();
-  const parsed = JSON.parse(rawText);
+  const parsed = JSON.parse(rawText) as Parameters<typeof sanitizeFormationOutput>[0];
+  for (const team of parsed.teams ?? []) {
+    for (const player of team.players ?? []) player.uid = originalIds.get(player.uid) ?? '';
+  }
   return sanitizeFormationOutput(parsed, body);
 }

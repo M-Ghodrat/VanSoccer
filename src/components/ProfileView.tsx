@@ -1,6 +1,7 @@
+import { savePlayerBusinesses } from '../utils/playerBusinesses';
 import React, { useEffect, useMemo, useState } from 'react';
-import { deleteUser, EmailAuthProvider, reauthenticateWithCredential, User } from 'firebase/auth';
-import { deleteDoc, deleteField, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
+import { deleteUser, EmailAuthProvider, GoogleAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup, User } from 'firebase/auth';
+import { doc, onSnapshot, serverTimestamp, writeBatch } from 'firebase/firestore';
 import {
   AlertTriangle,
   Briefcase,
@@ -107,7 +108,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [deleting, setDeleting] = useState(false);
 
   // Optional Business Info (supports multiple businesses, editable in Profile after registration)
-  const savedBusinesses = useMemo(() => getPlayerBusinesses(profile), [profile]);
+  const [privateBusinesses, setPrivateBusinesses] = useState<PlayerBusinessInfo[] | null>(null);
+  useEffect(() => onSnapshot(doc(db, 'player_business_private', user.uid), (snapshot) => {
+    setPrivateBusinesses(snapshot.data()?.businesses ?? []);
+  }, (error) => setError(error.message)), [user.uid]);
+  const savedBusinesses = useMemo(() => getPlayerBusinesses({
+    businesses: [...getPlayerBusinesses(profile), ...(privateBusinesses ?? [])],
+  }), [profile, privateBusinesses]);
   const [editingBusinessIndex, setEditingBusinessIndex] = useState<number | 'new' | null>(null);
   const [savingBusiness, setSavingBusiness] = useState(false);
   const [bizId, setBizId] = useState('');
@@ -378,27 +385,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       .map(sanitizeBusinessEntry)
       .filter((b) => b.businessName.length > 0);
 
-    const payload = {
-      businesses: sanitized,
-      business: deleteField(),
-      updatedAt: serverTimestamp(),
-    };
-
-    try {
-      await updateDoc(doc(db, 'players', user.uid), payload);
-    } catch (err) {
-      const code = (err as { code?: string })?.code || '';
-      if (code === 'permission-denied') {
-        await user.getIdToken(true);
-        await updateDoc(doc(db, 'players', user.uid), {
-          businesses: sanitized,
-          business: deleteField(),
-          updatedAt: serverTimestamp(),
-        });
-        return;
-      }
-      throw err;
-    }
+    if (privateBusinesses === null) throw new Error('Business details are still loading.');
+    await savePlayerBusinesses(user.uid, sanitized);
   };
 
   const handleUploadBizLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -551,27 +539,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     setDeleting(true);
     try {
       const hasPasswordProvider = user.providerData.some((p) => p.providerId === 'password');
-      if (hasPasswordProvider && deletePassword) {
-        const cred = EmailAuthProvider.credential(user.email || '', deletePassword);
-        await reauthenticateWithCredential(user, cred);
+      if (hasPasswordProvider) {
+        if (!deletePassword) throw new Error('Enter your password to confirm deletion.');
+        const credential = EmailAuthProvider.credential(user.email || '', deletePassword);
+        await reauthenticateWithCredential(user, credential);
+      } else {
+        await reauthenticateWithPopup(user, new GoogleAuthProvider());
       }
 
-      try {
-        await deleteDoc(doc(db, 'player_photos', user.uid));
-      } catch {
-        // Optional doc may not exist
+      const batch = writeBatch(db);
+      for (const collection of ['player_photos', 'player_private', 'player_business_private', 'members', 'players']) {
+        batch.delete(doc(db, collection, user.uid));
       }
-      try {
-        await deleteDoc(doc(db, 'player_private', user.uid));
-      } catch {
-        // Optional doc may not exist
-      }
-      try {
-        await deleteDoc(doc(db, 'players', user.uid));
-      } catch {
-        // Optional doc may not exist
-      }
-
+      await batch.commit();
       await deleteUser(user);
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code || '';
