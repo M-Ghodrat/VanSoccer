@@ -35,6 +35,8 @@ import {
 } from '../types';
 import { calculateAgeFromDob } from '../utils/clubUtils';
 import { compressBrandImageFile } from '../utils/imageUpload';
+import { formatPhoneNumber } from '../utils/phone';
+import { claimUsername, isUsernameAvailable, validateUsername } from '../utils/usernameAuth';
 import { BusinessCategorySelect } from './BusinessCategorySelect';
 import { CircularPhotoCropper, CroppedPhotoResult } from './CircularPhotoCropper';
 
@@ -52,7 +54,7 @@ function sanitizeBusinessEntry(biz: PlayerBusinessInfo): PlayerBusinessInfo {
     businessName: biz.businessName.trim().slice(0, 80),
     category: (biz.category || '').trim().slice(0, 50),
     tagline: (biz.tagline || '').trim().slice(0, 160),
-    phone: (biz.phone || '').trim().slice(0, 30),
+    phone: formatPhoneNumber(biz.phone),
     website: safeUrl,
     address: (biz.address || '').trim().slice(0, 120),
     logoUrl: safeLogo,
@@ -79,10 +81,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 }) => {
   const [firstName, setFirstName] = useState(profile?.firstName || '');
   const [lastName, setLastName] = useState(profile?.lastName || '');
+  const [username, setUsername] = useState(profile?.username || '');
   const [dob, setDob] = useState(privateInfo?.dob || '');
-  const [phone, setPhone] = useState(privateInfo?.phone || '');
+  const [phone, setPhone] = useState(formatPhoneNumber(privateInfo?.phone || ''));
   const [email, setEmail] = useState(privateInfo?.email || user.email || '');
-  const [emergencyContact, setEmergencyContact] = useState(privateInfo?.emergencyContact || '');
+  const [emergencyContact, setEmergencyContact] = useState(formatPhoneNumber(privateInfo?.emergencyContact || ''));
   const [pos1, setPos1] = useState(profile?.favoritePositions?.[0] || 'CM');
   const [pos2, setPos2] = useState(profile?.favoritePositions?.[1] || 'CDM');
   const [pos3, setPos3] = useState(profile?.favoritePositions?.[2] || 'CB');
@@ -132,6 +135,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     if (profile) {
       setFirstName(profile.firstName);
       setLastName(profile.lastName);
+      if (profile.username) setUsername(profile.username);
       setPos1(profile.favoritePositions[0] || 'CM');
       setPos2(profile.favoritePositions[1] || 'CDM');
       setPos3(profile.favoritePositions[2] || 'CB');
@@ -141,9 +145,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   useEffect(() => {
     if (privateInfo) {
       setDob(privateInfo.dob);
-      setPhone(privateInfo.phone);
+      setPhone(formatPhoneNumber(privateInfo.phone));
       setEmail(privateInfo.email);
-      setEmergencyContact(privateInfo.emergencyContact);
+      setEmergencyContact(formatPhoneNumber(privateInfo.emergencyContact));
     }
   }, [privateInfo]);
 
@@ -251,13 +255,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       setError('Please enter a valid date of birth.');
       return;
     }
-    if (phone.trim().length < 5 || emergencyContact.trim().length < 5) {
-      setError('Valid contact number and emergency contact number are required.');
+    if (phone.replace(/\D/g, '').length !== 10 || emergencyContact.replace(/\D/g, '').length !== 10) {
+      setError('Phone and emergency phone must be 10 digits (xxx-xxx-xxxx).');
       return;
     }
     if (new Set([pos1, pos2, pos3]).size < 3) {
       setError('Please choose 3 distinct favorite positions.');
       return;
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+    if (cleanUsername) {
+      const uVal = validateUsername(cleanUsername);
+      if (!uVal.valid) {
+        setError(uVal.error || 'Invalid username.');
+        return;
+      }
     }
 
     setSaving(true);
@@ -267,6 +280,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       : profile?.photoStatus || (pendingPhotoPreview ? 'pending' : 'none');
 
     try {
+      if (cleanUsername) {
+        const avail = await isUsernameAvailable(cleanUsername, user.uid);
+        if (!avail) {
+          setError('That personal username is already taken by another member.');
+          setSaving(false);
+          return;
+        }
+        await claimUsername(cleanUsername, email.trim() || user.email || '', user.uid);
+      }
+
       const isBootstrapAdmin = user.email?.toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase();
 
       const batch = writeBatch(db);
@@ -276,6 +299,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           uid: user.uid,
           firstName: firstName.trim().slice(0, 60),
           lastName: lastName.trim().slice(0, 60),
+          ...(cleanUsername ? { username: cleanUsername } : {}),
           age: computedAge,
           favoritePositions: [pos1, pos2, pos3],
           photoStatus: photoDirty ? 'pending' : 'none',
@@ -289,6 +313,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         batch.update(doc(db, 'players', user.uid), {
           firstName: firstName.trim().slice(0, 60),
           lastName: lastName.trim().slice(0, 60),
+          ...(cleanUsername ? { username: cleanUsername } : {}),
           age: computedAge,
           favoritePositions: [pos1, pos2, pos3],
           photoStatus: photoDirty ? 'pending' : profile.photoStatus,
@@ -366,7 +391,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     setBizName(target.businessName || '');
     setBizCategory(target.category || '');
     setBizTagline(target.tagline || '');
-    setBizPhone(target.phone || '');
+    setBizPhone(formatPhoneNumber(target.phone || ''));
     setBizWebsite(target.website || '');
     setBizAddress(target.address || '');
     setBizLogoUrl(target.logoUrl || '');
@@ -748,6 +773,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 text-xs">
             <div className="p-5 space-y-3">
               <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-500">Username</span>
+                <span className="font-mono font-semibold text-slate-900">
+                  {profile.username || '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500">Positions</span>
                 <span className="font-mono-tabular font-semibold text-slate-900">
                   {profile.favoritePositions.join(' / ')}
@@ -762,11 +793,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div className="p-5 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500">Phone</span>
-                <span className="font-mono-tabular font-medium text-slate-900">{phone || '—'}</span>
+                <span className="font-mono-tabular font-medium text-slate-900">{formatPhoneNumber(phone) || '—'}</span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500">Emergency</span>
-                <span className="font-mono-tabular font-medium text-slate-900">{emergencyContact || '—'}</span>
+                <span className="font-mono-tabular font-medium text-slate-900">{formatPhoneNumber(emergencyContact) || '—'}</span>
               </div>
             </div>
           </div>
@@ -852,6 +883,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600"
               />
             </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Personal Username <span className="font-normal text-slate-500">(optional — use to sign in instead of email)</span>
+              </label>
+              <input
+                type="text"
+                maxLength={24}
+                value={username}
+                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, ''))}
+                placeholder="ali"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Date of Birth *</label>
               <input
@@ -878,10 +922,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <input
                 type="tel"
                 required
-                maxLength={30}
+                maxLength={12}
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(604) 555-0142"
+                onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
+                placeholder="604-555-0142"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono-tabular focus:outline-none focus:ring-2 focus:ring-emerald-600"
               />
             </div>
@@ -890,10 +934,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <input
                 type="tel"
                 required
-                maxLength={30}
+                maxLength={12}
                 value={emergencyContact}
-                onChange={(e) => setEmergencyContact(e.target.value)}
-                placeholder="(604) 555-0199"
+                onChange={(e) => setEmergencyContact(formatPhoneNumber(e.target.value))}
+                placeholder="604-555-0199"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono-tabular focus:outline-none focus:ring-2 focus:ring-emerald-600"
               />
             </div>
@@ -1088,10 +1132,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     </label>
                     <input
                       type="tel"
-                      maxLength={30}
+                      maxLength={12}
                       value={bizPhone}
-                      onChange={(e) => setBizPhone(e.target.value)}
-                      placeholder="(604) 555-0142"
+                      onChange={(e) => setBizPhone(formatPhoneNumber(e.target.value))}
+                      placeholder="604-555-0142"
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-mono-tabular focus:outline-none focus:ring-2 focus:ring-emerald-600"
                     />
                   </div>
@@ -1280,7 +1324,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                           {biz.phone && (
                             <span className="inline-flex items-center gap-1.5 font-mono-tabular">
                               <Phone className="w-3.5 h-3.5 text-slate-400" />
-                              {biz.phone}
+                              {formatPhoneNumber(biz.phone)}
                             </span>
                           )}
                           {biz.address && (

@@ -24,6 +24,60 @@ async function startServer() {
     res.json({ status: 'ok', service: 'perspolis-vancouver' });
   });
 
+  // Lookup a member's email by personal username via Firestore REST API (no public collection exposure)
+  app.post('/api/auth/lookup-username', async (req, res) => {
+    try {
+      const rawUsername = typeof req.body?.username === 'string' ? req.body.username : '';
+      const normalized = rawUsername
+        .trim()
+        .toLowerCase()
+        .replace(/^@+/, '')
+        .replace(/[^a-z0-9._-]/g, '');
+
+      if (normalized.length < 3 || normalized.length > 30) {
+        res.status(400).json({ error: 'Please enter a valid username (3–30 characters).' });
+        return;
+      }
+
+      const projectId =
+        process.env.FIREBASE_PROJECT_ID || 'ai-studio-1910f007-6af5-4d25-bfd7-8fb424f269d7';
+      const databaseId =
+        process.env.FIREBASE_DATABASE_ID || 'ai-studio-1910f007-6af5-4d25-bfd7-8fb424f269d7';
+
+      const docUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+        projectId
+      )}/databases/${encodeURIComponent(databaseId)}/documents/usernames/${encodeURIComponent(
+        normalized
+      )}`;
+
+      const docResp = await fetch(docUrl);
+      if (docResp.status === 404) {
+        res.status(404).json({ error: 'Username not found. Please check your username or sign in with your email address.' });
+        return;
+      }
+      if (!docResp.ok) {
+        res.status(502).json({ error: 'Could not look up username right now.' });
+        return;
+      }
+
+      const docJson = (await docResp.json()) as {
+        fields?: {
+          email?: { stringValue?: string };
+        };
+      };
+      const email = docJson.fields?.email?.stringValue?.trim() || '';
+      if (!email) {
+        res.status(404).json({ error: 'Username not found.' });
+        return;
+      }
+
+      res.json({ email });
+    } catch (error) {
+      console.error('Username lookup failed:', error);
+      res.status(500).json({ error: 'Failed to look up username.' });
+    }
+  });
+
   app.post('/api/attendance', async (req, res) => {
     try {
       await updateAttendance(req.headers.authorization, req.body);

@@ -36,6 +36,7 @@ import {
 } from '../types';
 import { isTestPlayerUid, removeAllTestPlayers, seedTestPlayers } from '../utils/testPlayers';
 import { compressBrandImageFile } from '../utils/imageUpload';
+import { formatPhoneNumber } from '../utils/phone';
 import { BusinessCategorySelect } from './BusinessCategorySelect';
 import { CircularPhotoCropper, CroppedPhotoResult } from './CircularPhotoCropper';
 import { PlayerKitShouldersSvg } from './SoccerPitch';
@@ -54,7 +55,7 @@ function sanitizeBusinessEntry(biz: PlayerBusinessInfo): PlayerBusinessInfo {
     businessName: biz.businessName.trim().slice(0, 80),
     category: (biz.category || '').trim().slice(0, 50),
     tagline: (biz.tagline || '').trim().slice(0, 160),
-    phone: (biz.phone || '').trim().slice(0, 30),
+    phone: formatPhoneNumber(biz.phone),
     website: safeUrl,
     address: (biz.address || '').trim().slice(0, 120),
     logoUrl: safeLogo,
@@ -235,8 +236,8 @@ export const AdminHub: React.FC<AdminHubProps> = ({
       const priv = privateById.get(p.uid);
       const name = `${p.firstName} ${p.lastName}`.toLowerCase();
       const email = (priv?.email || '').toLowerCase();
-      const phone = (priv?.phone || '').toLowerCase();
-      const em = (priv?.emergencyContact || '').toLowerCase();
+      const phone = formatPhoneNumber(priv?.phone).toLowerCase();
+      const em = formatPhoneNumber(priv?.emergencyContact).toLowerCase();
       const bList = businessEntries(p);
       const bNames = bList.map((b) => b.businessName.toLowerCase()).join(' ');
       return (
@@ -511,7 +512,7 @@ export const AdminHub: React.FC<AdminHubProps> = ({
       setFormBizName(business.businessName);
       setFormBizCategory(business.category || '');
       setFormBizTagline(business.tagline || '');
-      setFormBizPhone(business.phone || '');
+      setFormBizPhone(formatPhoneNumber(business.phone));
       setFormBizWebsite(business.website || '');
       setFormBizAddress(business.address || '');
       setFormBizLogoUrl(business.logoUrl || '');
@@ -1080,15 +1081,15 @@ export const AdminHub: React.FC<AdminHubProps> = ({
                         </td>
                         <td className="py-3 px-4 font-mono-tabular text-slate-700">
                           {priv?.phone ? (
-                            <a href={`tel:${priv.phone}`} className="hover:underline text-emerald-700 font-medium">
-                              {priv.phone}
+                            <a href={`tel:${formatPhoneNumber(priv.phone)}`} className="hover:underline text-emerald-700 font-medium">
+                              {formatPhoneNumber(priv.phone)}
                             </a>
                           ) : (
                             '—'
                           )}
                         </td>
                         <td className="py-3 px-4 font-mono-tabular font-semibold text-red-700">
-                          {priv?.emergencyContact || '—'}
+                          {formatPhoneNumber(priv?.emergencyContact) || '—'}
                         </td>
                         <td className="py-3 px-4 text-slate-600">
                           {priv?.email ? (
@@ -1141,10 +1142,6 @@ export const AdminHub: React.FC<AdminHubProps> = ({
                               >
                                 <Plus className="w-3 h-3" /> Add Business
                               </button>
-                            )}
-
-                            {bList.length === 0 && (
-                              <span className="text-slate-400 text-[11px]">No businesses</span>
                             )}
                           </div>
                         </td>
@@ -1284,10 +1281,11 @@ export const AdminHub: React.FC<AdminHubProps> = ({
                   <label className="block font-semibold text-slate-700 mb-1">Phone</label>
                   <input
                     type="tel"
-                    maxLength={30}
+                    inputMode="numeric"
+                    maxLength={12}
                     value={formBizPhone}
-                    onChange={(e) => setFormBizPhone(e.target.value)}
-                    placeholder="(604) 555-0142"
+                    onChange={(e) => setFormBizPhone(formatPhoneNumber(e.target.value))}
+                    placeholder="604-555-0142"
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono-tabular focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   />
                 </div>

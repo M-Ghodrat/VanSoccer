@@ -55,6 +55,7 @@ import {
   RibbonWidth,
 } from '../types';
 import { compressBrandImageFile } from '../utils/imageUpload';
+import { formatPhoneNumber } from '../utils/phone';
 import { ClubRibbon } from './ClubRibbon';
 
 interface RibbonManagerProps {
@@ -207,7 +208,7 @@ function buildSanitizedRibbonConfig(next: LocalRibbonState, uid: string): Ribbon
       if (it.linkedPlayerUid) clean.linkedPlayerUid = it.linkedPlayerUid.slice(0, 128);
       if (it.ownerName) clean.ownerName = it.ownerName.slice(0, 80);
       if (it.category) clean.category = it.category.slice(0, 50);
-      if (it.phone) clean.phone = it.phone.slice(0, 30);
+      if (it.phone) clean.phone = formatPhoneNumber(it.phone);
       if (it.website) {
         const safe = normalizeSafeHttpUrl(it.website);
         if (safe) clean.website = safe;
@@ -568,7 +569,7 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
     setDraftCategory(item.category || '');
     setDraftOwnerName(item.ownerName || '');
     setDraftLinkedUid(item.linkedPlayerUid || '');
-    setDraftPhone(item.phone || '');
+    setDraftPhone(formatPhoneNumber(item.phone));
     setDraftWebsite(item.website || '');
     setDraftAddress(item.address || '');
     setDraftImageUrl(item.imageUrl || '');
@@ -597,7 +598,7 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
     if ((overwrite || !draftTitle.trim()) && biz.businessName) setDraftTitle(biz.businessName);
     if ((overwrite || !draftCategory.trim()) && biz.category) setDraftCategory(biz.category);
     if ((overwrite || !draftText.trim()) && biz.tagline) setDraftText(biz.tagline);
-    if ((overwrite || !draftPhone.trim()) && biz.phone) setDraftPhone(biz.phone);
+    if ((overwrite || !draftPhone.trim()) && biz.phone) setDraftPhone(formatPhoneNumber(biz.phone));
     if ((overwrite || !draftWebsite.trim()) && biz.website) setDraftWebsite(biz.website);
     if ((overwrite || !draftAddress.trim()) && biz.address) setDraftAddress(biz.address);
     if ((overwrite || !draftImageUrl) && biz.logoUrl) setDraftImageUrl(biz.logoUrl);
@@ -705,7 +706,7 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
       ...(draftLinkedUid ? { linkedPlayerUid: draftLinkedUid.slice(0, 128) } : {}),
       ...(draftOwnerName.trim() ? { ownerName: draftOwnerName.trim().slice(0, 80) } : {}),
       ...(draftCategory.trim() ? { category: draftCategory.trim().slice(0, 50) } : {}),
-      ...(draftPhone.trim() ? { phone: draftPhone.trim().slice(0, 30) } : {}),
+      ...(draftPhone.trim() ? { phone: formatPhoneNumber(draftPhone) } : {}),
       ...(safeWebsite ? { website: safeWebsite } : {}),
       ...(draftAddress.trim() ? { address: draftAddress.trim().slice(0, 120) } : {}),
       ...(startsAtIso ? { startsAtIso } : {}),
@@ -756,7 +757,7 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
       linkedPlayerUid: player.uid,
       ownerName: ownerName.slice(0, 80),
       ...(biz.category.trim() ? { category: biz.category.trim().slice(0, 50) } : {}),
-      ...(biz.phone.trim() ? { phone: biz.phone.trim().slice(0, 30) } : {}),
+      ...(biz.phone.trim() ? { phone: formatPhoneNumber(biz.phone) } : {}),
       ...(safeWebsite ? { website: safeWebsite } : {}),
       ...(biz.address.trim() ? { address: biz.address.trim().slice(0, 120) } : {}),
       ...(expiresAtIso ? { expiresAtIso } : {}),
@@ -1535,7 +1536,7 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
                             {biz.phone && (
                               <span className="inline-flex items-center gap-1 font-mono-tabular">
                                 <Phone className="w-3 h-3 text-slate-400" />
-                                {biz.phone}
+                                {formatPhoneNumber(biz.phone)}
                               </span>
                             )}
                             {biz.address && (
@@ -1794,10 +1795,10 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
                     </label>
                     <input
                       type="tel"
-                      maxLength={30}
+                      maxLength={12}
                       value={draftPhone}
-                      onChange={(e) => setDraftPhone(e.target.value)}
-                      placeholder="(604) 555-0100"
+                      onChange={(e) => setDraftPhone(formatPhoneNumber(e.target.value))}
+                      placeholder="604-555-0100"
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-mono-tabular focus:outline-none focus:ring-2 focus:ring-emerald-600"
                     />
                   </div>
@@ -2049,7 +2050,7 @@ export const RibbonManager: React.FC<RibbonManagerProps> = ({
                         {item.phone && (
                           <span className="inline-flex items-center gap-1 font-mono-tabular">
                             <Phone className="w-3 h-3 text-slate-400" />
-                            {item.phone}
+                            {formatPhoneNumber(item.phone)}
                           </span>
                         )}
                         {item.address && (

@@ -28,6 +28,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/auth/lookup-username"
+  to = "/.netlify/functions/lookup-username"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

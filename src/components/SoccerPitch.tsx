@@ -469,12 +469,12 @@ export const StaminaPerimeterRing: React.FC<{
   );
 };
 
-// Pro-grade realistic sculpted soccer jersey shoulders with anatomical collarbone/deltoid contour & refined neck opening (viewBox 0 0 96 36, zero black border)
+// Pro-grade realistic sculpted soccer jersey shoulders with anatomical collarbone/deltoid contour & refined snug neck opening (viewBox 0 0 96 36, zero black border)
 const PITCH_SHOULDERS_FRONT_PATH =
-  'M28.2 6.4C33.1 13.8 39.8 17.2 48 17.2C56.2 17.2 62.9 13.8 67.8 6.4C73.4 8.2 79.4 10.2 84.5 12.8C87.8 14.6 89.6 17.2 90.6 20.6C92.4 25.2 93.8 30.2 95.0 35.6H1.0C2.2 30.2 3.6 25.2 5.4 20.6C6.4 17.2 8.2 14.6 11.5 12.8C16.6 10.2 22.6 8.2 28.2 6.4Z';
+  'M32.8 6.0C36.8 12.8 42.0 16.5 48 16.5C54.0 16.5 59.2 12.8 63.2 6.0C68.4 7.8 74.2 9.8 79.4 11.8C84.6 13.8 88.6 16.8 90.6 20.6C92.4 25.2 93.8 30.2 95.0 35.6H1.0C2.2 30.2 3.6 25.2 5.4 20.6C6.4 17.2 8.2 14.6 11.5 12.8C16.6 10.2 24.8 7.8 32.8 6.0Z';
 
 const PITCH_NECK_SKIN_AREA_PATH =
-  'M28.2 6.4C33.8 4.4 40.6 3.7 48 3.7C55.4 3.7 62.2 4.4 67.8 6.4C63.8 15.4 56.6 19.6 48 19.6C39.4 19.6 32.2 15.4 28.2 6.4Z';
+  'M32.8 6.0C37.2 4.2 42.4 3.6 48 3.6C53.6 3.6 58.8 4.2 63.2 6.0C59.6 14.2 54.2 18.2 48 18.2C41.8 18.2 36.4 14.2 32.8 6.0Z';
 
 export const DEFAULT_NECK_SKIN_TONE = '#d4a27e';
 
@@ -606,7 +606,7 @@ export const PlayerKitShouldersSvg: React.FC<{
 
           {/* Slim Classic Crew Back Neckline Rim */}
           <path
-            d="M28.2 6.4C33.8 4.2 40.6 3.5 48 3.5C55.4 3.5 62.2 4.2 67.8 6.4"
+            d="M32.8 6.0C37.2 4.2 42.4 3.5 48 3.5C53.6 3.5 58.8 4.2 63.2 6.0"
             stroke={k.collarBase}
             strokeWidth="1.75"
             strokeLinecap="round"
@@ -622,7 +622,7 @@ export const PlayerKitShouldersSvg: React.FC<{
           <g clipPath={`url(#${clipId})`}>
             {/* Tailored Shoulder Yoke Panel Wrapping Collarbone & Shoulders */}
             <path
-              d="M28.2 6.4C33.1 13.8 39.8 17.2 48 17.2C56.2 17.2 62.9 13.8 67.8 6.4L91 15.2L83 27.2C72.5 22.2 60.8 20.2 48 20.2C35.2 20.2 23.5 22.2 13 27.2L5 15.2L28.2 6.4Z"
+              d="M32.8 6.0C36.8 12.8 42.0 16.5 48 16.5C54.0 16.5 59.2 12.8 63.2 6.0L91 15.2L83 27.2C72.5 22.2 60.8 20.2 48 20.2C35.2 20.2 23.5 22.2 13 27.2L5 15.2L32.8 6.0Z"
               fill={k.yoke}
               opacity="0.52"
             />
@@ -781,7 +781,7 @@ export const PlayerKitShouldersSvg: React.FC<{
             <g>
               {/* Soft Cast-Shadow Below Neckline Band onto Upper Chest */}
               <path
-                d="M26.4 7.4C32 15.8 39.2 19.9 48 19.9C56.8 19.9 64 15.8 69.6 7.4"
+                d="M31.2 7.0C35.8 14.5 41.5 18.8 48 18.8C54.5 18.8 60.2 14.5 64.8 7.0"
                 stroke="#000000"
                 strokeOpacity="0.26"
                 strokeWidth="3"
@@ -789,24 +789,24 @@ export const PlayerKitShouldersSvg: React.FC<{
               />
               {/* Sculpted 3D Ribbed Athletic Neck Band */}
               <path
-                d="M26.6 6.2C32 14.2 39.1 18.2 48 18.2C56.9 18.2 64 14.2 69.4 6.2L66.8 5.4C62 12.5 55.6 15.9 48 15.9C40.4 15.9 34 12.5 29.2 5.4L26.6 6.2Z"
+                d="M31.4 5.9C36.0 13.2 41.6 17.2 48 17.2C54.4 17.2 60.0 13.2 64.6 5.9L62.2 5.1C58.0 11.8 53.0 15.1 48 15.1C43.0 15.1 38.0 11.8 33.8 5.1L31.4 5.9Z"
                 fill={`url(#${collarRibGradId})`}
               />
               {/* Front Center Ribbed V-Throat Gusset Insert */}
               <path
-                d="M42.4 17.4L48 22.3L53.6 17.4C51.8 18 49.9 18.3 48 18.3C46.1 18.3 44.2 18 42.4 17.4Z"
+                d="M43.6 16.8L48 21.0L52.4 16.8C51.0 17.3 49.5 17.5 48 17.5C46.5 17.5 45.0 17.3 43.6 16.8Z"
                 fill={k.collarGusset}
               />
               {/* Woven Contrast Tipping Stripe inside Ribbed Band */}
               <path
-                d="M27.8 6.3C32.9 13.5 39.6 17.1 48 17.1C56.4 17.1 63.1 13.5 68.2 6.3"
+                d="M32.4 6.0C36.6 12.6 42.0 16.2 48 16.2C54.0 16.2 59.4 12.6 63.6 6.0"
                 stroke={k.collarTipping}
                 strokeWidth="1.2"
                 strokeLinecap="round"
               />
               {/* Fine Double-Needle Coverstitch Seam */}
               <path
-                d="M25.6 8.5C31.4 17.1 38.8 21.3 48 21.3C57.2 21.3 64.6 17.1 70.4 8.5"
+                d="M30.4 8.0C35.4 15.5 41.2 19.8 48 19.8C54.8 19.8 60.6 15.5 65.6 8.0"
                 stroke={k.seamHighlight}
                 strokeWidth="0.85"
                 strokeDasharray="2.2 1.8"

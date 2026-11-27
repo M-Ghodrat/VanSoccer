@@ -207,7 +207,7 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
   const [dragging, setDragging] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [previewKitColor, setPreviewKitColor] = useState<StandardTeamColor>('Blue');
+  const previewKitColor: StandardTeamColor = 'Blue';
   const [skinTone, setSkinTone] = useState<string>(() =>
     normalizeHexColor(initialSkinTone, DEFAULT_NECK_SKIN_TONE)
   );
@@ -215,9 +215,43 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
 
   // Dual in-browser AI cutout state: profile (with shirt, bg removed) + pitch (head & neck only)
   const [cutoutPair, setCutoutPair] = useState<PortraitCutoutPair | null>(null);
-  const [useTransparentBg, setUseTransparentBg] = useState(false);
-  const [removingBg, setRemovingBg] = useState(false);
+  const [useTransparentBg, setUseTransparentBg] = useState(true);
+  const [removingBg, setRemovingBg] = useState(true);
   const [bgError, setBgError] = useState<string | null>(null);
+
+  // Automatically apply background removal (for profile) and dress/shirt removal (for field icon) on mount
+  useEffect(() => {
+    let active = true;
+    setRemovingBg(true);
+    setBgError(null);
+    removePortraitBackgroundDual(imageSrc)
+      .then((pair) => {
+        if (!active) return;
+        setCutoutPair(pair);
+        setUseTransparentBg(true);
+        if (pair.detectedSkinTone && /^#[0-9a-fA-F]{6}$/.test(pair.detectedSkinTone)) {
+          const matched = pair.detectedSkinTone.toLowerCase();
+          setAutoDetectedSkinTone(matched);
+          setSkinTone(matched);
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.warn('Auto cutout fallback notice:', err);
+        setBgError(
+          err instanceof Error
+            ? err.message
+            : 'Using original photo fallback for alignment.'
+        );
+      })
+      .finally(() => {
+        if (active) setRemovingBg(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [imageSrc]);
 
   const imgRef = useRef<HTMLImageElement | null>(null);
   const dragOriginRef = useRef<{
@@ -306,41 +340,6 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
     [clampOffset, zoom]
   );
 
-  const handleToggleRemoveBackground = async () => {
-    setBgError(null);
-    setExportError(null);
-
-    if (useTransparentBg) {
-      setUseTransparentBg(false);
-      return;
-    }
-
-    if (cutoutPair) {
-      setUseTransparentBg(true);
-      return;
-    }
-
-    setRemovingBg(true);
-    try {
-      const pair = await removePortraitBackgroundDual(imageSrc);
-      setCutoutPair(pair);
-      if (pair.detectedSkinTone && /^#[0-9a-fA-F]{6}$/.test(pair.detectedSkinTone)) {
-        const matched = pair.detectedSkinTone.toLowerCase();
-        setAutoDetectedSkinTone(matched);
-        setSkinTone(matched);
-      }
-      setUseTransparentBg(true);
-    } catch (err) {
-      setBgError(
-        err instanceof Error
-          ? err.message
-          : 'Could not remove background automatically. You can still upload the original photo.'
-      );
-    } finally {
-      setRemovingBg(false);
-    }
-  };
-
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isLocked) return;
     e.preventDefault();
@@ -358,10 +357,15 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
     };
   };
 
+  const PANEL_W = 216;
+  const PANEL_H = 240;
+  const FIELD_STAGE_SCALE = PANEL_W / STAGE_W;
+  const PROFILE_CIRCLE_SIZE = 188;
+
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging || !dragOriginRef.current) return;
-    const dx = e.clientX - dragOriginRef.current.pointerX;
-    const dy = e.clientY - dragOriginRef.current.pointerY;
+    const dx = (e.clientX - dragOriginRef.current.pointerX) / FIELD_STAGE_SCALE;
+    const dy = (e.clientY - dragOriginRef.current.pointerY) / FIELD_STAGE_SCALE;
     setOffset(
       clampOffset(
         dragOriginRef.current.startX + dx,
@@ -408,7 +412,7 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
           : loadHtmlImage(activeProfileSrc),
       ]);
 
-      // Tall 240x300 pitch cutout (massive open headroom above shoulders, zero circle cut)
+      // Tall 240x300 pitch cutout
       const pitchPhotoDataUrl = renderCroppedCanvas(
         pitchImg,
         useTransparentBg,
@@ -420,7 +424,7 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
         PITCH_OUT_H
       );
 
-      // Balanced 256x256 profile avatar (keeps shirt, background removed when cutout active)
+      // Balanced 256x256 profile avatar
       const profilePhotoDataUrl = renderCroppedCanvas(
         profileImg,
         useTransparentBg,
@@ -449,16 +453,10 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
   const renderW = naturalSize.w * baseImageScale * zoom;
   const renderH = naturalSize.h * baseImageScale * zoom;
 
-  // Mini standardized pitch preview (exact 76x95 open-headroom portrait + 78x29 sculpted shoulders)
-  const miniPitchRatio = PITCH_PORTRAIT_W / activeCaptureW;
-  const miniPitchCx = PITCH_PORTRAIT_W / 2 + offset.x * miniPitchRatio;
-  const miniPitchCy = (PHOTO_BASE_Y + offset.y - captureTop) * miniPitchRatio;
-
-  // Mini standardized profile preview (52x52 circular avatar showing shirt kept + bg removed)
-  const miniProfileSize = 52;
-  const miniProfileRatio = miniProfileSize / activeCaptureW;
-  const miniProfileCx = miniProfileSize / 2 + offset.x * miniProfileRatio;
-  const miniProfileCy = (PHOTO_BASE_Y + offset.y - profileCaptureTop) * miniProfileRatio;
+  // Large Left Panel: Profile Photo ratio
+  const largeProfileRatio = PROFILE_CIRCLE_SIZE / activeCaptureW;
+  const largeProfileCx = PROFILE_CIRCLE_SIZE / 2 + offset.x * largeProfileRatio;
+  const largeProfileCy = (PHOTO_BASE_Y + offset.y - profileCaptureTop) * largeProfileRatio;
 
   const isRemoteHttp = activePitchSrc.startsWith('http://') || activePitchSrc.startsWith('https://');
   const previewKitIndex = STANDARD_TEAM_COLORS.indexOf(previewKitColor);
@@ -470,313 +468,227 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
       aria-modal="true"
       aria-labelledby="photo-cropper-title"
     >
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden my-auto">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-          <div>
-            <h3 id="photo-cropper-title" className="text-base font-semibold text-slate-900">
-              {title}
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Align neck &amp; shoulders to the jersey — full open space above the head, no circular cut.
-            </p>
+        <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3">
+          <h3 id="photo-cropper-title" className="text-base font-semibold text-slate-900">
+            {title}
+          </h3>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={isLocked}
+              onClick={handleReset}
+              className="px-2.5 py-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 inline-flex items-center gap-1 disabled:opacity-40"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </button>
+            <button
+              type="button"
+              disabled={isLocked}
+              onClick={onCancel}
+              aria-label="Close photo editor"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            disabled={isLocked}
-            onClick={onCancel}
-            aria-label="Close photo editor"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
 
-        {/* Open-Headroom Shoulder Alignment Stage (NO circular limit) */}
+        {/* Two Equal-Size Side-by-Side Interactive Panels: Left = Profile, Right = Field */}
         <div className="p-5 space-y-4">
-          <div className="flex flex-col items-center gap-3">
-            <div
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              onWheel={handleWheel}
-              style={{ width: STAGE_W, height: STAGE_H }}
-              className={`relative rounded-xl overflow-hidden select-none touch-none ${
-                useTransparentBg ? 'pitch-stripes' : 'bg-slate-800'
-              } ${dragging ? 'cursor-grabbing' : isLocked ? 'cursor-wait' : 'cursor-grab'}`}
-            >
-              {/* Layer 1: Back Interior Collar (Behind Neck) */}
+          <div className="grid grid-cols-2 gap-3.5 justify-items-center">
+            {/* Left Panel: Profile Photo */}
+            <div className="flex flex-col items-center gap-2 w-full">
               <div
-                aria-hidden="true"
-                style={{
-                  width: `${shouldersW}px`,
-                  height: `${shouldersH}px`,
-                  left: `${captureCx - shouldersW / 2}px`,
-                  top: `${shouldersTop}px`,
-                }}
-                className="absolute z-10 pointer-events-none"
-              >
-                <PlayerKitShouldersSvg
-                  color={previewKitColor}
-                  teamIndex={previewKitIndex}
-                  layer="back"
-                  skinTone={skinTone}
-                  className="w-full h-full"
-                />
-              </div>
-
-              {/* Layer 2: Draggable & Zoomable Photo (Full Open Headroom Above Collar) */}
-              <img
-                ref={imgRef}
-                src={activePitchSrc}
-                alt="Jersey alignment preview"
-                crossOrigin={isRemoteHttp ? 'anonymous' : undefined}
-                draggable={false}
-                onLoad={(e) => {
-                  const target = e.currentTarget;
-                  if (target.naturalWidth > 0 && target.naturalHeight > 0) {
-                    setNaturalSize({
-                      w: target.naturalWidth,
-                      h: target.naturalHeight,
-                    });
-                    setImageReady(true);
-                  }
-                }}
-                style={{
-                  width: `${renderW}px`,
-                  height: `${renderH}px`,
-                  left: `${captureCx + offset.x}px`,
-                  top: `${PHOTO_BASE_Y + offset.y}px`,
-                  transform: 'translate(-50%, -50%)',
-                }}
-                className="absolute z-20 max-w-none pointer-events-none select-none"
-              />
-
-              {/* Layer 3: Front Pro Realistic Soccer Jersey Shoulders */}
-              <div
-                aria-hidden="true"
-                style={{
-                  width: `${shouldersW}px`,
-                  height: `${shouldersH}px`,
-                  left: `${captureCx - shouldersW / 2}px`,
-                  top: `${shouldersTop}px`,
-                }}
-                className="absolute z-30 pointer-events-none"
-              >
-                <PlayerKitShouldersSvg
-                  color={previewKitColor}
-                  teamIndex={previewKitIndex}
-                  layer="front"
-                  skinTone={skinTone}
-                  className="w-full h-full drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]"
-                />
-              </div>
-
-              {/* Layer 4: Dashed Neck-Opening & Shoulder Alignment Guide ONLY */}
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 96 36"
-                fill="none"
-                style={{
-                  width: `${shouldersW}px`,
-                  height: `${shouldersH}px`,
-                  left: `${captureCx - shouldersW / 2}px`,
-                  top: `${shouldersTop}px`,
-                }}
-                className="absolute z-30 pointer-events-none overflow-visible"
-              >
-                {/* Dashed neck opening guide */}
-                <path
-                  d="M27.6 6.2C32.8 14 39.6 17.6 48 17.6C56.4 17.6 63.2 14 68.4 6.2"
-                  stroke="#ffffff"
-                  strokeOpacity="0.9"
-                  strokeWidth="1.3"
-                  strokeDasharray="3.2 2.6"
-                  strokeLinecap="round"
-                />
-                {/* Subtle dashed shoulder slope boundary */}
-                <path
-                  d="M1.2 35.6C2.4 30.2 3.8 25.2 5.6 20.6C6.6 17.2 8.4 14.6 11.7 12.8C16.8 10.2 22.6 8.2 27.8 6.4M68.2 6.4C73.4 8.2 79.2 10.2 84.3 12.8C87.6 14.6 89.4 17.2 90.4 20.6C92.2 25.2 93.6 30.2 94.8 35.6"
-                  stroke="#ffffff"
-                  strokeOpacity="0.62"
-                  strokeWidth="1"
-                  strokeDasharray="3.2 3.2"
-                  strokeLinecap="round"
-                />
-              </svg>
-
-              {/* Center vertical alignment line while dragging */}
-              {dragging && (
-                <div
-                  aria-hidden="true"
-                  className="absolute left-1/2 top-0 bottom-0 w-px bg-white/35 z-30 pointer-events-none"
-                />
-              )}
-
-              {/* Processing overlay */}
-              {removingBg && (
-                <div className="absolute inset-0 z-40 bg-slate-950/75 flex flex-col items-center justify-center gap-2 text-white px-4 text-center">
-                  <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
-                  <span className="text-xs font-semibold">Creating Profile &amp; Pitch cutouts...</span>
-                  <span className="text-[10px] text-slate-300">
-                    Profile keeps shirt · Pitch keeps head &amp; neck only
-                  </span>
-                </div>
-              )}
-
-              {/* Subtle drag hint */}
-              {!dragging && !removingBg && (
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none px-2.5 py-0.5 rounded-md bg-slate-950/70 text-white/90 text-[10px] font-medium inline-flex items-center gap-1 whitespace-nowrap">
-                  <Move className="w-3 h-3" />
-                  Drag photo to seat neck in collar
-                </div>
-              )}
-            </div>
-
-            {/* Dual Cutout Action Bar */}
-            <div className="w-full flex items-center justify-between gap-2">
-              <button
-                type="button"
-                disabled={isLocked}
-                onClick={handleToggleRemoveBackground}
-                className={`flex-1 px-3.5 py-2 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 border transition-colors disabled:opacity-50 ${
-                  useTransparentBg
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
-                    : 'bg-slate-900 border-slate-900 text-white hover:bg-slate-800'
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onWheel={handleWheel}
+                style={{ width: PANEL_W, height: PANEL_H }}
+                className={`relative rounded-xl overflow-hidden select-none touch-none bg-slate-900 border border-slate-200 flex items-center justify-center shadow-inner ${
+                  dragging ? 'cursor-grabbing' : isLocked ? 'cursor-wait' : 'cursor-grab'
                 }`}
               >
-                {removingBg ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Processing Cutouts...
-                  </>
-                ) : useTransparentBg ? (
-                  <>
-                    <Undo2 className="w-3.5 h-3.5" />
-                    Cutout Active (Profile w/ Shirt · Pitch Head &amp; Neck) · Undo
-                  </>
-                ) : (
-                  <>
-                    <Eraser className="w-3.5 h-3.5" />
-                    Remove Background (Profile w/ Shirt · Pitch Head &amp; Neck)
-                  </>
+                <div
+                  style={{ width: PROFILE_CIRCLE_SIZE, height: PROFILE_CIRCLE_SIZE }}
+                  className="relative rounded-full bg-gradient-to-b from-[#0b1f44] to-[#173b7a] border-2 border-white/80 overflow-hidden shadow-md pointer-events-none"
+                >
+                  <img
+                    src={activeProfileSrc}
+                    alt="Profile preview"
+                    draggable={false}
+                    style={{
+                      width: `${renderW * largeProfileRatio}px`,
+                      height: `${renderH * largeProfileRatio}px`,
+                      left: `${largeProfileCx}px`,
+                      top: `${largeProfileCy}px`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                    className="absolute max-w-none pointer-events-none select-none"
+                  />
+                </div>
+
+                {removingBg && (
+                  <div className="absolute inset-0 z-40 bg-slate-950/70 flex flex-col items-center justify-center gap-2 text-white">
+                    <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
+                  </div>
                 )}
-              </button>
+              </div>
+              <span className="text-xs font-bold text-slate-800">Profile</span>
             </div>
 
-            {bgError && (
-              <div className="w-full p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
-                {bgError}
-              </div>
-            )}
-
-            {/* Side-by-Side Standardized Previews: Pitch (Tall Headroom + Pro Jersey) & Profile (With Shirt) */}
-            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-200 w-full justify-between">
-              <div className="flex items-center gap-3 min-w-0">
-                {/* Standardized Pitch Preview (Exact 76x95 Open Headroom + 78x29 Shoulders) */}
-                <div className="flex flex-col items-center gap-1 shrink-0">
-                  <div className="w-[88px] h-[94px] rounded-lg pitch-stripes flex items-end justify-center overflow-hidden shadow-inner border border-emerald-900/20 pb-0.5">
-                    <div className="relative w-[78px] h-[102px] flex justify-center scale-[0.88] origin-bottom">
-                      <div className="absolute bottom-0 left-0 w-[78px] h-[29px] z-10">
-                        <PlayerKitShouldersSvg
-                          color={previewKitColor}
-                          teamIndex={previewKitIndex}
-                          layer="back"
-                          skinTone={skinTone}
-                          className="w-[78px] h-[29px]"
-                        />
-                      </div>
-                      <div className="absolute bottom-[7px] left-1/2 -translate-x-1/2 w-[76px] h-[95px] overflow-hidden z-20">
-                        <img
-                          src={activePitchSrc}
-                          alt="Standardized pitch preview"
-                          draggable={false}
-                          style={{
-                            width: `${renderW * miniPitchRatio}px`,
-                            height: `${renderH * miniPitchRatio}px`,
-                            left: `${miniPitchCx}px`,
-                            top: `${miniPitchCy}px`,
-                            transform: 'translate(-50%, -50%)',
-                          }}
-                          className="absolute max-w-none pointer-events-none select-none"
-                        />
-                      </div>
-                      <div className="absolute bottom-0 left-0 w-[78px] h-[29px] z-30">
-                        <PlayerKitShouldersSvg
-                          color={previewKitColor}
-                          teamIndex={previewKitIndex}
-                          layer="front"
-                          skinTone={skinTone}
-                          className="w-[78px] h-[29px] drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-600">On Pitch</span>
-                </div>
-
-                {/* Standardized Profile Preview (Keeps Shirt, BG Removed) */}
-                <div className="flex flex-col items-center gap-1 shrink-0">
-                  <div className="w-[56px] h-[56px] rounded-full bg-gradient-to-b from-[#0b1f44] to-[#173b7a] border border-slate-300 flex items-center justify-center overflow-hidden relative shadow-xs">
-                    <div className="relative w-[52px] h-[52px] rounded-full overflow-hidden">
-                      <img
-                        src={activeProfileSrc}
-                        alt="Standardized profile preview"
-                        draggable={false}
-                        style={{
-                          width: `${renderW * miniProfileRatio}px`,
-                          height: `${renderH * miniProfileRatio}px`,
-                          left: `${miniProfileCx}px`,
-                          top: `${miniProfileCy}px`,
-                          transform: 'translate(-50%, -50%)',
-                        }}
-                        className="absolute max-w-none pointer-events-none select-none"
-                      />
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-600">Profile</span>
-                </div>
-
-                {/* Kit Color Switcher */}
-                <div className="text-xs space-y-1.5 min-w-0">
-                  <div className="text-[11px] font-semibold text-slate-800 leading-tight">
-                    Kit Preview
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {STANDARD_TEAM_COLORS.map((kit) => (
-                      <button
-                        key={kit}
-                        type="button"
-                        onClick={() => setPreviewKitColor(kit)}
-                        title={`Preview ${kit} jersey`}
-                        aria-label={`Preview ${kit} jersey`}
-                        className={`w-4 h-4 rounded-full border transition-transform ${
-                          KIT_DOT_CLASSES[kit]
-                        } ${
-                          previewKitColor === kit
-                            ? 'ring-2 ring-slate-900 ring-offset-1 scale-110'
-                            : 'opacity-65 hover:opacity-100'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                disabled={isLocked}
-                onClick={handleReset}
-                className="px-2 py-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-semibold text-slate-700 inline-flex items-center gap-1 whitespace-nowrap shrink-0 disabled:opacity-40"
+            {/* Right Panel: Field Icon */}
+            <div className="flex flex-col items-center gap-2 w-full">
+              <div
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onWheel={handleWheel}
+                style={{ width: PANEL_W, height: PANEL_H }}
+                className={`relative rounded-xl overflow-hidden select-none touch-none border border-slate-200 shadow-inner ${
+                  useTransparentBg ? 'pitch-stripes' : 'bg-slate-800'
+                } ${dragging ? 'cursor-grabbing' : isLocked ? 'cursor-wait' : 'cursor-grab'}`}
               >
-                <RotateCcw className="w-3 h-3" />
-                Reset
-              </button>
-            </div>
+                <div
+                  style={{
+                    width: STAGE_W,
+                    height: STAGE_H,
+                    transform: `scale(${FIELD_STAGE_SCALE})`,
+                    transformOrigin: 'bottom center',
+                    left: '50%',
+                    bottom: 0,
+                    marginLeft: -(STAGE_W / 2),
+                  }}
+                  className="absolute pointer-events-none"
+                >
+                  {/* Layer 1: Back Interior Collar */}
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      width: `${shouldersW}px`,
+                      height: `${shouldersH}px`,
+                      left: `${captureCx - shouldersW / 2}px`,
+                      top: `${shouldersTop}px`,
+                    }}
+                    className="absolute z-10 pointer-events-none"
+                  >
+                    <PlayerKitShouldersSvg
+                      color={previewKitColor}
+                      teamIndex={previewKitIndex}
+                      layer="back"
+                      skinTone={skinTone}
+                      className="w-full h-full"
+                    />
+                  </div>
 
-            {/* Natural Neck Skin Match Controls */}
-            <div className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                  {/* Layer 2: Draggable & Zoomable Photo */}
+                  <img
+                    ref={imgRef}
+                    src={activePitchSrc}
+                    alt="Field alignment preview"
+                    crossOrigin={isRemoteHttp ? 'anonymous' : undefined}
+                    draggable={false}
+                    onLoad={(e) => {
+                      const target = e.currentTarget;
+                      if (target.naturalWidth > 0 && target.naturalHeight > 0) {
+                        setNaturalSize({
+                          w: target.naturalWidth,
+                          h: target.naturalHeight,
+                        });
+                        setImageReady(true);
+                      }
+                    }}
+                    style={{
+                      width: `${renderW}px`,
+                      height: `${renderH}px`,
+                      left: `${captureCx + offset.x}px`,
+                      top: `${PHOTO_BASE_Y + offset.y}px`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                    className="absolute z-20 max-w-none pointer-events-none select-none"
+                  />
+
+                  {/* Layer 3: Front Pro Realistic Soccer Jersey Shoulders */}
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      width: `${shouldersW}px`,
+                      height: `${shouldersH}px`,
+                      left: `${captureCx - shouldersW / 2}px`,
+                      top: `${shouldersTop}px`,
+                    }}
+                    className="absolute z-30 pointer-events-none"
+                  >
+                    <PlayerKitShouldersSvg
+                      color={previewKitColor}
+                      teamIndex={previewKitIndex}
+                      layer="front"
+                      skinTone={skinTone}
+                      className="w-full h-full drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]"
+                    />
+                  </div>
+
+                  {/* Layer 4: Dashed Neck-Opening & Shoulder Alignment Guide */}
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 96 36"
+                    fill="none"
+                    style={{
+                      width: `${shouldersW}px`,
+                      height: `${shouldersH}px`,
+                      left: `${captureCx - shouldersW / 2}px`,
+                      top: `${shouldersTop}px`,
+                    }}
+                    className="absolute z-30 pointer-events-none overflow-visible"
+                  >
+                    <path
+                      d="M32.8 6.0C36.8 12.8 42.0 16.5 48 16.5C54.0 16.5 59.2 12.8 63.2 6.0"
+                      stroke="#ffffff"
+                      strokeOpacity="0.9"
+                      strokeWidth="1.3"
+                      strokeDasharray="3.2 2.6"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M1.2 35.6C2.4 30.2 3.8 25.2 5.6 20.6C6.6 17.2 8.4 14.6 11.7 12.8C16.6 10.2 24.8 7.8 32.8 6.0M63.2 6.0C71.2 7.8 79.4 10.2 84.3 12.8C87.6 14.6 89.4 17.2 90.4 20.6C92.2 25.2 93.6 30.2 94.8 35.6"
+                      stroke="#ffffff"
+                      strokeOpacity="0.62"
+                      strokeWidth="1"
+                      strokeDasharray="3.2 3.2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+
+                {dragging && (
+                  <div
+                    aria-hidden="true"
+                    className="absolute left-1/2 top-0 bottom-0 w-px bg-white/35 z-30 pointer-events-none"
+                  />
+                )}
+
+                {removingBg && (
+                  <div className="absolute inset-0 z-40 bg-slate-950/70 flex flex-col items-center justify-center gap-2 text-white">
+                    <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
+                  </div>
+                )}
+              </div>
+              <span className="text-xs font-bold text-slate-800">Field</span>
+            </div>
+          </div>
+
+          {bgError && (
+            <div className="w-full p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+              {bgError}
+            </div>
+          )}
+
+          {/* Natural Neck Skin Match Controls */}
+          <div className="w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
               {/* Natural Neck Skin Tone Matcher */}
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] font-semibold text-slate-700 shrink-0">
@@ -839,7 +751,6 @@ export const CircularPhotoCropper: React.FC<CircularPhotoCropperProps> = ({
                   </label>
                 </div>
               </div>
-            </div>
           </div>
 
           {/* Dual Independent Controls: Photo Size + Shoulder & Collar Size */}

@@ -1,3 +1,5 @@
+import { formatPhoneNumber } from './utils/phone';
+
 export type UserRole = 'player' | 'manager' | 'admin';
 
 export type PhotoStatus = 'none' | 'pending' | 'approved' | 'rejected';
@@ -186,6 +188,7 @@ export interface PlayerProfile {
   pitchSkinTone?: string;
   role: UserRole;
   appearances: number;
+  username?: string;
   business?: PlayerBusinessInfo | null;
   businesses?: PlayerBusinessInfo[];
   createdAt?: unknown;
@@ -232,7 +235,7 @@ export function getPlayerBusinesses(
       if (existingIdx !== -1) {
         const prev = deduped[existingIdx];
         if (!prev.website && b.website) prev.website = b.website;
-        if (!prev.phone && b.phone) prev.phone = b.phone;
+        if (!prev.phone && b.phone) prev.phone = formatPhoneNumber(b.phone);
         if (!prev.logoUrl && b.logoUrl) prev.logoUrl = b.logoUrl;
         if (!prev.tagline && b.tagline) prev.tagline = b.tagline;
         if (!prev.address && b.address) prev.address = b.address;
@@ -243,7 +246,7 @@ export function getPlayerBusinesses(
 
     if (idKey) seenIds.add(idKey);
     seenNames.add(nameKey);
-    deduped.push({ ...b });
+    deduped.push({ ...b, phone: formatPhoneNumber(b.phone) });
     if (deduped.length >= MAX_PLAYER_BUSINESSES) break;
   }
 

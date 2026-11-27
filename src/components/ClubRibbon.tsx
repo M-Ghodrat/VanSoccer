@@ -26,6 +26,7 @@ import {
   RibbonSpeed,
   RibbonWidth,
 } from '../types';
+import { formatPhoneNumber } from '../utils/phone';
 import { ClubBrandMark } from './ClubBrandMark';
 
 interface ClubRibbonProps {
@@ -333,13 +334,13 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
       >
         {item.phone && (
           <a
-            href={`tel:${item.phone.replace(/[^\d+]/g, '')}`}
+            href={`tel:${formatPhoneNumber(item.phone)}`}
             onClick={(e) => e.stopPropagation()}
             style={{ color: textColor }}
             className="inline-flex items-center gap-1 font-mono-tabular opacity-90 hover:opacity-100 shrink-0"
           >
             <Phone className="w-3 h-3 shrink-0" style={{ color: subtleTextColor }} />
-            <span>{item.phone}</span>
+            <span>{formatPhoneNumber(item.phone)}</span>
           </a>
         )}
         {item.address && (
@@ -545,8 +546,8 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
                 className="text-[11px] leading-tight truncate block font-medium"
               >
                 {item.type === 'business'
-                  ? 'Perspolis VFC Community Partner'
-                  : 'Perspolis Vancouver Announcement'}
+                  ? 'Persepolis Vancouver Football Club Society (PVFCS) Partner'
+                  : 'Persepolis Vancouver Football Club Society (PVFCS)'}
               </span>
             )}
           </div>
@@ -832,11 +833,11 @@ export const ClubRibbon: React.FC<ClubRibbonProps> = ({
                 <div className="pt-3 border-t border-slate-100 space-y-2.5 text-xs">
                   {selectedItem.phone && (
                     <a
-                      href={`tel:${selectedItem.phone.replace(/[^\d+]/g, '')}`}
+                      href={`tel:${formatPhoneNumber(selectedItem.phone)}`}
                       className="flex items-center gap-2 text-slate-800 hover:text-emerald-700 font-mono-tabular"
                     >
                       <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>{selectedItem.phone}</span>
+                      <span>{formatPhoneNumber(selectedItem.phone)}</span>
                     </a>
                   )}
                   {selectedItem.address && (

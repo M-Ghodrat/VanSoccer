@@ -109,6 +109,13 @@
         "appearances": {
           "type": "number"
         },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "description": "Unique club handle allowing players to sign in with their personal username instead of email."
+        },
         "business": {
           "type": "object",
           "description": "Deprecated legacy single-business field; removed automatically on save once migrated to businesses."
@@ -800,6 +807,48 @@
         }
       },
       "required": ["enabled", "mode", "speed", "items", "updatedBy", "updatedAt"]
+    },
+    "UsernameMapping": {
+      "title": "UsernameMapping",
+      "description": "Unique username-to-email routing record allowing members to sign in with their personal username.",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-zA-Z0-9_.-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["username", "email", "uid", "createdAt"]
+    },
+    "ClubRulesDoc": {
+      "title": "ClubRulesDoc",
+      "description": "Official Code of Conduct, matchday standards, and club discipline document manageable by admin.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 120 },
+        "subtitle": { "type": "string", "maxLength": 300 },
+        "lastUpdated": { "type": "string", "maxLength": 40 },
+        "rules": { "type": "array" },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "subtitle", "lastUpdated", "rules"]
     }
   },
   "firestore": {
@@ -858,6 +907,14 @@
     "/ribbon/{docId}": {
       "schema": { "$ref": "#/entities/RibbonConfig" },
       "description": "Admin-managed club ribbon bar configuration and announcements"
+    },
+    "/usernames/{username}": {
+      "schema": { "$ref": "#/entities/UsernameMapping" },
+      "description": "Username to email mappings for personal username authentication"
+    },
+    "/club_rules/{ruleId}": {
+      "schema": { "$ref": "#/entities/ClubRulesDoc" },
+      "description": "Official Code of Conduct & Club Discipline document manageable by admin"
     }
   }
 }

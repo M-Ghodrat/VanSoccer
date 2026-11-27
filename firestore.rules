@@ -130,6 +130,7 @@ service cloud.firestore {
           'uid', 'firstName', 'lastName', 'age', 'favoritePositions',
           'photoStatus', 'approvedPhotoUrl', 'approvedPitchPhotoUrl',
           'pitchCollarStyle', 'pitchSkinTone', 'role', 'appearances',
+          'username',
           'business', 'businesses', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.uid)
@@ -148,6 +149,7 @@ service cloud.firestore {
         && (!('pitchSkinTone' in data) || data.pitchSkinTone == null || data.pitchSkinTone == '' || (data.pitchSkinTone is string && data.pitchSkinTone.size() <= 16 && data.pitchSkinTone.matches('^#[0-9a-fA-F]{6}$')))
         && data.role in ['player', 'manager', 'admin']
         && data.appearances is number && data.appearances >= 0 && data.appearances <= 10000
+        && (!('username' in data) || data.username == null || (data.username is string && data.username.size() >= 3 && data.username.size() <= 24 && data.username.matches('^[a-zA-Z0-9_.-]+$')))
         && (!('business' in data) || data.business == null || isValidPlayerBusiness(data.business))
         && (!('businesses' in data) || data.businesses == null || isValidPlayerBusinessesList(data.businesses))
         && data.createdAt is timestamp
@@ -529,7 +531,7 @@ service cloud.firestore {
               isAdmin() ||
               (
                 isOwner(uid)
-                && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'age', 'favoritePositions', 'photoStatus', 'business', 'businesses', 'updatedAt'])
+                && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'age', 'favoritePositions', 'photoStatus', 'username', 'business', 'businesses', 'updatedAt'])
                 && incoming().role == existing().role
                 && incoming().approvedPhotoUrl == existing().approvedPhotoUrl
                 && incoming().appearances == existing().appearances
@@ -769,6 +771,39 @@ service cloud.firestore {
         && incoming().updatedBy == request.auth.uid
         && incoming().updatedAt == request.time;
       allow delete: if isValidId(docId) && isVerifiedUser() && isAdmin();
+    }
+
+    function isValidUsernameId(u) {
+      return u is string && u.size() >= 3 && u.size() <= 30 && u.matches('^[a-zA-Z0-9_.-]+$');
+    }
+
+    match /usernames/{username} {
+      allow get: if isValidUsernameId(username);
+      allow list: if false;
+      allow create: if isValidUsernameId(username)
+        && isSignedIn()
+        && incoming().keys().hasAll(['username', 'email', 'uid', 'createdAt'])
+        && incoming().keys().hasOnly(['username', 'email', 'uid', 'createdAt'])
+        && incoming().uid == request.auth.uid
+        && incoming().username is string && incoming().username.size() >= 3 && incoming().username.size() <= 24
+        && incoming().email is string && incoming().email.size() >= 3 && incoming().email.size() <= 120
+        && incoming().createdAt == request.time;
+      allow update: if isValidUsernameId(username)
+        && isSignedIn()
+        && existing().uid == request.auth.uid
+        && incoming().uid == request.auth.uid;
+      allow delete: if isValidUsernameId(username) && isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+    }
+
+    match /club_rules/{ruleId} {
+      allow get: if isValidId(ruleId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update: if isValidId(ruleId)
+        && isVerifiedUser()
+        && isAdmin()
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(ruleId) && isVerifiedUser() && isAdmin();
     }
   }
 }

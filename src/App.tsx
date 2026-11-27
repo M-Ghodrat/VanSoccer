@@ -31,6 +31,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Scale,
   Settings,
   Shield,
   X,
@@ -75,6 +76,7 @@ import { EducationView } from './components/EducationView';
 import { ClubRibbon } from './components/ClubRibbon';
 import { ClubBrandMark } from './components/ClubBrandMark';
 import { clearGmailAccessToken } from './utils/gmailAuth';
+import { formatPhoneNumber } from './utils/phone';
 
 const ProfileView = lazy(() => import('./components/ProfileView').then((module) => ({ default: module.ProfileView })));
 const ManagerHub = lazy(() => import('./components/ManagerHub').then((module) => ({ default: module.ManagerHub })));
@@ -82,6 +84,7 @@ const AdminHub = lazy(() => import('./components/AdminHub').then((module) => ({ 
 const PaymentsHub = lazy(() => import('./components/PaymentsHub').then((module) => ({ default: module.PaymentsHub })));
 const RibbonManager = lazy(() => import('./components/RibbonManager').then((module) => ({ default: module.RibbonManager })));
 const PlayerRatingDeck = lazy(() => import('./components/PlayerRatingDeck').then((module) => ({ default: module.PlayerRatingDeck })));
+const ClubRulesView = lazy(() => import('./components/ClubRulesView').then((module) => ({ default: module.ClubRulesView })));
 
 type AppTab =
   | 'lineup'
@@ -89,6 +92,7 @@ type AppTab =
   | 'matches'
   | 'stats'
   | 'education'
+  | 'conduct'
   | 'ratings'
   | 'payments'
   | 'setting'
@@ -214,7 +218,16 @@ export default function App() {
       onSnapshot(
         doc(db, 'player_private', user.uid),
         (snap) => {
-          setMyPrivateInfo(snap.exists() ? (snap.data() as PlayerPrivateInfo) : null);
+          if (snap.exists()) {
+            const raw = snap.data() as PlayerPrivateInfo;
+            setMyPrivateInfo({
+              ...raw,
+              phone: formatPhoneNumber(raw.phone),
+              emergencyContact: formatPhoneNumber(raw.emergencyContact),
+            });
+          } else {
+            setMyPrivateInfo(null);
+          }
         },
         (err) => handleFirestoreError(err, OperationType.GET, `player_private/${user.uid}`)
       )
@@ -254,19 +267,33 @@ export default function App() {
       )
     );
 
-    unsubs.push(onSnapshot(doc(db, 'members', user.uid), (snap) => {
-      setMemberUid(snap.exists() ? user.uid : null);
-      setMembershipCheckedUid(user.uid);
-    }));
+    unsubs.push(
+      onSnapshot(
+        doc(db, 'members', user.uid),
+        (snap) => {
+          setMemberUid(snap.exists() ? user.uid : null);
+          setMembershipCheckedUid(user.uid);
+        },
+        () => {
+          setMemberUid(null);
+          setMembershipCheckedUid(user.uid);
+        }
+      )
+    );
 
     return () => unsubs.forEach((unsubscribe) => unsubscribe());
   }, [user, isEmailVerified]);
 
-  const effectiveRole: 'admin' | 'manager' | 'player' = isAdminFlag
-    ? 'admin'
-    : isManagerFlag
-      ? 'manager'
-      : 'player';
+  const isBootstrappedAdmin = Boolean(
+    user?.email && user.email.toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase()
+  );
+
+  const effectiveRole: 'admin' | 'manager' | 'player' =
+    isAdminFlag || isBootstrappedAdmin
+      ? 'admin'
+      : isManagerFlag
+        ? 'manager'
+        : 'player';
 
   const isManagerOrAdmin = effectiveRole === 'manager' || effectiveRole === 'admin';
   const isAdmin = effectiveRole === 'admin';
@@ -297,7 +324,16 @@ export default function App() {
         doc(db, 'ribbon', 'config'),
         (snap) => {
           if (snap.exists()) {
-            setRibbonConfig(snap.data() as RibbonConfig);
+            const raw = snap.data() as RibbonConfig;
+            setRibbonConfig({
+              ...raw,
+              items: Array.isArray(raw.items)
+                ? raw.items.map((item) => ({
+                    ...item,
+                    phone: item.phone ? formatPhoneNumber(item.phone) : item.phone,
+                  }))
+                : DEFAULT_RIBBON_CONFIG.items,
+            });
           } else {
             setRibbonConfig(DEFAULT_RIBBON_CONFIG);
           }
@@ -437,7 +473,16 @@ export default function App() {
         onSnapshot(
           query(collection(db, 'player_private'), where('uid', '>', '')),
           (snap) => {
-            setAllPrivateInfos(snap.docs.map((d) => d.data() as PlayerPrivateInfo));
+            setAllPrivateInfos(
+              snap.docs.map((d) => {
+                const raw = d.data() as PlayerPrivateInfo;
+                return {
+                  ...raw,
+                  phone: formatPhoneNumber(raw.phone),
+                  emergencyContact: formatPhoneNumber(raw.emergencyContact),
+                };
+              })
+            );
           },
           (err) => handleFirestoreError(err, OperationType.LIST, 'player_private')
         )
@@ -622,7 +667,7 @@ export default function App() {
   if (!authReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-sm font-medium text-slate-600">Loading Perspolis VFC Society...</div>
+        <div className="text-sm font-medium text-slate-600">Loading Persepolis Vancouver Football Club Society (PVFCS)...</div>
       </div>
     );
   }
@@ -682,7 +727,8 @@ export default function App() {
     { id: 'ratings', label: 'Player Cards', icon: Award, visible: true, tier: 'player' },
     { id: 'payments', label: 'Payments', icon: DollarSign, visible: isManagerOrAdmin, tier: 'manager' },
     { id: 'setting', label: 'Setting', icon: Settings, visible: isManagerOrAdmin, tier: 'manager' },
-    { id: 'education', label: 'Education', icon: BookOpen, visible: true, disabled: true, tier: 'player' },
+    { id: 'education', label: 'Education', icon: BookOpen, visible: true, tier: 'player' },
+    { id: 'conduct', label: 'Code of Conduct', icon: Scale, visible: true, tier: 'player' },
     { id: 'admin', label: 'Admin', icon: Shield, visible: isAdmin, tier: 'admin' },
     { id: 'ribbon', label: 'Ads & Notices', icon: Megaphone, visible: isAdmin, tier: 'admin' },
   ];
@@ -714,7 +760,6 @@ export default function App() {
     effectiveProfile?.photoStatus !== 'approved';
 
   const handleSelectTab = (tabId: AppTab) => {
-    if (tabId === 'education') return;
     if (activeTab === 'ribbon' && tabId !== 'ribbon' && ribbonHasUnsavedChanges) {
       setPendingTabTarget(tabId);
       setMobileMenuOpen(false);
@@ -811,7 +856,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => handleSelectTab(isManagerOrAdmin ? 'lineup' : 'matchday')}
-            aria-label="Perspolis Vancouver"
+            aria-label="Persepolis Vancouver Football Club Society (PVFCS)"
             className="flex items-center gap-2 min-w-0"
           >
             {effectiveProfile ? (
@@ -846,7 +891,7 @@ export default function App() {
             onClick={() => setMobileMenuOpen(false)}
             aria-hidden="true"
           />
-          <aside className="relative w-60 max-w-[80vw] bg-white border-r border-slate-200 h-full flex flex-col z-10">
+          <aside className="relative w-64 max-w-[85vw] bg-white border-r border-slate-200 h-full flex flex-col z-10">
             <div className="h-14 px-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
               <div className="flex items-center min-w-0">
                 <ClubBrandMark showWordmark={true} size="md" />
@@ -989,7 +1034,7 @@ export default function App() {
       {/* Desktop Left Sidebar (md+) */}
       <aside
         className={`hidden md:flex flex-col sticky top-0 h-screen bg-white border-r border-slate-200 shrink-0 transition-[width] duration-150 z-30 ${
-          sidebarCollapsed ? 'w-16' : 'w-56'
+          sidebarCollapsed ? 'w-16' : 'w-64'
         }`}
       >
         {/* Brand + Collapse Toggle */}
@@ -1001,8 +1046,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => handleSelectTab(isManagerOrAdmin ? 'lineup' : 'matchday')}
-            title="Perspolis Vancouver"
-            aria-label="Perspolis Vancouver"
+            title="Persepolis Vancouver Football Club Society (PVFCS)"
+            aria-label="Persepolis Vancouver Football Club Society (PVFCS)"
             className="flex items-center min-w-0 text-left"
           >
             <ClubBrandMark showWordmark={!sidebarCollapsed} size="md" />
@@ -1346,6 +1391,13 @@ export default function App() {
                 user={user}
                 profile={effectiveProfile}
                 posts={educationPosts}
+              />
+            )}
+
+            {activeTab === 'conduct' && (
+              <ClubRulesView
+                user={user}
+                isAdmin={isAdmin}
               />
             )}
 

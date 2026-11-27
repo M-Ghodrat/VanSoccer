@@ -8,163 +8,28 @@ import {
   User,
 } from 'firebase/auth';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { AlertCircle, ArrowRight, CheckCircle2, Mail, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check, CheckCircle2, Mail, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { auth } from '../firebase';
 import { ClubBrandMark } from './ClubBrandMark';
 import { standardGoogleSignIn } from '../utils/gmailAuth';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import {
+  claimUsername,
+  isUsernameAvailable,
+  lookupEmailByUsername,
+  validateUsername,
+} from '../utils/usernameAuth';
 
 interface AuthGateProps {
   unverifiedUser: User | null;
   onUserVerified: () => Promise<void>;
 }
 
-interface PitchMarker {
-  id: string;
-  team: 'emerald' | 'amber';
-  role: string;
-  phases: Array<{ x: number; y: number }>;
-}
-
-// Three realistic tactical phases across a horizontal 360x200 pitch SVG
-const TACTICAL_MARKERS: PitchMarker[] = [
-  // Emerald squad (attacking left -> right)
-  {
-    id: 'e-gk',
-    team: 'emerald',
-    role: 'GK',
-    phases: [
-      { x: 24, y: 100 },
-      { x: 28, y: 98 },
-      { x: 24, y: 102 },
-    ],
-  },
-  {
-    id: 'e-def1',
-    team: 'emerald',
-    role: 'CB',
-    phases: [
-      { x: 86, y: 60 },
-      { x: 108, y: 52 },
-      { x: 96, y: 66 },
-    ],
-  },
-  {
-    id: 'e-def2',
-    team: 'emerald',
-    role: 'CB',
-    phases: [
-      { x: 86, y: 140 },
-      { x: 112, y: 144 },
-      { x: 96, y: 134 },
-    ],
-  },
-  {
-    id: 'e-mid',
-    team: 'emerald',
-    role: 'CM',
-    phases: [
-      { x: 158, y: 100 },
-      { x: 196, y: 72 },
-      { x: 174, y: 122 },
-    ],
-  },
-  {
-    id: 'e-wing',
-    team: 'emerald',
-    role: 'RW',
-    phases: [
-      { x: 196, y: 46 },
-      { x: 256, y: 40 },
-      { x: 230, y: 68 },
-    ],
-  },
-  {
-    id: 'e-st',
-    team: 'emerald',
-    role: 'ST',
-    phases: [
-      { x: 224, y: 136 },
-      { x: 278, y: 104 },
-      { x: 248, y: 112 },
-    ],
-  },
-  // Amber squad (defending / countering right -> left)
-  {
-    id: 'a-gk',
-    team: 'amber',
-    role: 'GK',
-    phases: [
-      { x: 336, y: 100 },
-      { x: 334, y: 102 },
-      { x: 336, y: 98 },
-    ],
-  },
-  {
-    id: 'a-def1',
-    team: 'amber',
-    role: 'CB',
-    phases: [
-      { x: 274, y: 64 },
-      { x: 292, y: 68 },
-      { x: 258, y: 58 },
-    ],
-  },
-  {
-    id: 'a-def2',
-    team: 'amber',
-    role: 'CB',
-    phases: [
-      { x: 274, y: 136 },
-      { x: 292, y: 134 },
-      { x: 252, y: 142 },
-    ],
-  },
-  {
-    id: 'a-mid',
-    team: 'amber',
-    role: 'CM',
-    phases: [
-      { x: 204, y: 100 },
-      { x: 232, y: 96 },
-      { x: 184, y: 90 },
-    ],
-  },
-  {
-    id: 'a-wing',
-    team: 'amber',
-    role: 'LW',
-    phases: [
-      { x: 162, y: 152 },
-      { x: 194, y: 154 },
-      { x: 140, y: 144 },
-    ],
-  },
-  {
-    id: 'a-st',
-    team: 'amber',
-    role: 'ST',
-    phases: [
-      { x: 138, y: 54 },
-      { x: 168, y: 76 },
-      { x: 118, y: 72 },
-    ],
-  },
-];
-
-// Ball follows passing sequence through the tactical phases
-const BALL_TRAJECTORY = [
-  { x: 158, y: 100 }, // CM starts on the ball
-  { x: 196, y: 46 },  // Driven out wide to RW
-  { x: 256, y: 40 },  // RW advances down the flank
-  { x: 278, y: 104 }, // Cutback into ST at the box
-  { x: 230, y: 68 },  // Recycle through pressing shape
-  { x: 174, y: 122 }, // Reset across midfield
-];
-
 export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerified }) => {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [loginIdentifier, setLoginIdentifier] = useState('');
   const [email, setEmail] = useState('');
+  const [signupUsername, setSignupUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -174,6 +39,14 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
   const [heroImgFailed, setHeroImgFailed] = useState(false);
 
   const shouldReduceMotion = useReducedMotion();
+
+  // Password strength checks (Standard OWASP/NIST criteria: min 8, upper, lower, digit, special)
+  const pwdMinLen = password.length >= 8;
+  const pwdHasUpper = /[A-Z]/.test(password);
+  const pwdHasLower = /[a-z]/.test(password);
+  const pwdHasDigit = /[0-9]/.test(password);
+  const pwdHasSpecial = /[^A-Za-z0-9]/.test(password);
+  const isPwdStrong = pwdMinLen && pwdHasUpper && pwdHasLower && pwdHasDigit && pwdHasSpecial;
 
   const handleGoogleSignIn = async () => {
     setError(null);
@@ -200,24 +73,88 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
     setError(null);
     setNotice(null);
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
-      return;
-    }
-
-    if (mode === 'signup' && password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
+    if (mode === 'signup') {
+      if (!pwdMinLen) {
+        setError('Password must be at least 8 characters long.');
+        return;
+      }
+      if (!pwdHasUpper) {
+        setError('Password must contain at least one uppercase letter (A-Z).');
+        return;
+      }
+      if (!pwdHasLower) {
+        setError('Password must contain at least one lowercase letter (a-z).');
+        return;
+      }
+      if (!pwdHasDigit) {
+        setError('Password must contain at least one number (0-9).');
+        return;
+      }
+      if (!pwdHasSpecial) {
+        setError('Password must contain at least one special character (!@#$%^&* etc.).');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match.');
+        return;
+      }
+    } else {
+      if (!password || password.length < 6) {
+        setError('Please enter your password.');
+        return;
+      }
     }
 
     setLoading(true);
     try {
       if (mode === 'signup') {
+        const cleanUser = signupUsername.trim().toLowerCase();
+        if (cleanUser) {
+          const val = validateUsername(cleanUser);
+          if (!val.valid) {
+            setError(val.error || 'Invalid username format.');
+            setLoading(false);
+            return;
+          }
+          const avail = await isUsernameAvailable(cleanUser);
+          if (!avail) {
+            setError('This username is already taken. Please choose another one.');
+            setLoading(false);
+            return;
+          }
+        }
+
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        if (cleanUser) {
+          try {
+            await claimUsername(cleanUser, email.trim(), cred.user.uid);
+          } catch (claimErr) {
+            console.warn('Could not register username on signup:', claimErr);
+          }
+        }
         await sendEmailVerification(cred.user);
         setNotice('Confirmation email sent. Please check your inbox and verify your address.');
       } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
+        const rawId = loginIdentifier.trim();
+        if (!rawId) {
+          setError('Please enter your email or personal username.');
+          setLoading(false);
+          return;
+        }
+
+        let targetEmail = rawId;
+        if (!rawId.includes('@')) {
+          // Username resolution
+          const foundEmail = await lookupEmailByUsername(rawId);
+          if (!foundEmail) {
+            setError('No account found for this username. Please check your spelling or sign in with your email address.');
+            setLoading(false);
+            return;
+          }
+          targetEmail = foundEmail;
+        }
+
+        await signInWithEmailAndPassword(auth, targetEmail, password);
       }
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code || '';
@@ -228,9 +165,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
       } else if (code === 'auth/email-already-in-use') {
         setError('An account with this email already exists. Try signing in instead.');
       } else if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
-        setError('Invalid email or password.');
+        setError('Invalid credentials. Please verify your email/username and password.');
       } else if (code === 'auth/weak-password') {
-        setError('Password must be at least 6 characters.');
+        setError('Password must meet the strong password criteria (8+ characters, upper, lower, number, special).');
       } else {
         setError(err instanceof Error ? err.message : 'Authentication failed.');
       }
@@ -315,7 +252,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 grid lg:grid-cols-12 items-stretch overflow-x-hidden">
       {/* Left Floodlit Pitch Showcase */}
-      <div className="lg:col-span-7 relative overflow-hidden flex flex-col justify-between p-7 sm:p-10 lg:p-14 min-h-[420px]">
+      <div className="lg:col-span-7 relative overflow-hidden flex flex-col justify-end p-7 sm:p-10 lg:p-14 min-h-[420px]">
         {/* Slow Ken Burns Pitch Backdrop */}
         <motion.div
           aria-hidden="true"
@@ -373,139 +310,18 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
           </>
         )}
 
-        {/* Top Brand Lockup */}
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, ease: 'easeOut' }}
-          className="relative z-10 flex items-center"
-        >
-          <ClubBrandMark showWordmark={false} size="lg" tone="dark" />
-        </motion.div>
-
-        {/* Transparent Floating Tactical Pitch Overlay */}
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, y: 18, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.55, delay: 0.1, ease: 'easeOut' }}
-          className="relative z-10 my-6 lg:my-8 max-w-xl"
-        >
-          <svg
-            viewBox="0 0 360 200"
-            className="w-full h-auto block"
-            role="img"
-            aria-label="Animated 6-a-side tactical pitch formation preview"
-          >
-            {/* Translucent chalk pitch markings floating directly over stadium photo */}
-            <g stroke="rgba(255,255,255,0.28)" strokeWidth="1.25" fill="none">
-              <rect x="12" y="12" width="336" height="176" rx="4" />
-              <line x1="180" y1="12" x2="180" y2="188" />
-              <circle cx="180" cy="100" r="28" />
-              <circle cx="180" cy="100" r="2" fill="rgba(255,255,255,0.4)" />
-              {/* Left & Right penalty boxes */}
-              <rect x="12" y="54" width="44" height="92" />
-              <rect x="12" y="76" width="16" height="48" />
-              <rect x="304" y="54" width="44" height="92" />
-              <rect x="332" y="76" width="16" height="48" />
-            </g>
-
-            {/* Semi-Transparent Moving Tactical Player Nodes */}
-            {TACTICAL_MARKERS.map((marker) => {
-              const isEmerald = marker.team === 'emerald';
-              const start = marker.phases[0];
-              const xs = marker.phases.map((p) => p.x);
-              const ys = marker.phases.map((p) => p.y);
-              return (
-                <motion.g
-                  key={marker.id}
-                  opacity={0.72}
-                  initial={{ x: start.x, y: start.y }}
-                  animate={
-                    shouldReduceMotion
-                      ? { x: start.x, y: start.y }
-                      : {
-                          x: [...xs, start.x],
-                          y: [...ys, start.y],
-                        }
-                  }
-                  transition={{
-                    duration: 12,
-                    repeat: Infinity,
-                    ease: 'easeInOut',
-                  }}
-                >
-                  <circle
-                    cx="0"
-                    cy="0"
-                    r="11.5"
-                    fill={isEmerald ? 'rgba(16, 185, 129, 0.14)' : 'rgba(245, 158, 11, 0.14)'}
-                  />
-                  <circle
-                    cx="0"
-                    cy="0"
-                    r="8.5"
-                    fill={isEmerald ? 'rgba(5, 150, 105, 0.56)' : 'rgba(217, 119, 6, 0.56)'}
-                    stroke="rgba(255, 255, 255, 0.65)"
-                    strokeWidth="1.25"
-                  />
-                  <text
-                    x="0"
-                    y="2.8"
-                    textAnchor="middle"
-                    fill="rgba(255, 255, 255, 0.9)"
-                    fontSize="6.5"
-                    fontWeight="700"
-                    fontFamily="JetBrains Mono, monospace"
-                  >
-                    {marker.role}
-                  </text>
-                </motion.g>
-              );
-            })}
-
-            {/* Semi-Transparent Animated Soccer Ball */}
-            <motion.g
-              opacity={0.78}
-              initial={{ x: BALL_TRAJECTORY[0].x, y: BALL_TRAJECTORY[0].y }}
-              animate={
-                shouldReduceMotion
-                  ? { x: BALL_TRAJECTORY[0].x, y: BALL_TRAJECTORY[0].y }
-                  : {
-                      x: [...BALL_TRAJECTORY.map((p) => p.x), BALL_TRAJECTORY[0].x],
-                      y: [...BALL_TRAJECTORY.map((p) => p.y), BALL_TRAJECTORY[0].y],
-                    }
-              }
-              transition={{
-                duration: 12,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
-            >
-              <circle cx="0" cy="0" r="8" fill="rgba(255, 255, 255, 0.18)" />
-              <circle
-                cx="0"
-                cy="0"
-                r="4.5"
-                fill="rgba(255, 255, 255, 0.78)"
-                stroke="rgba(15, 23, 42, 0.75)"
-                strokeWidth="1.2"
-              />
-            </motion.g>
-          </svg>
-        </motion.div>
-
         {/* Bottom Hero Copy */}
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.16, ease: 'easeOut' }}
-          className="relative z-10 max-w-xl space-y-3"
+          className="relative z-10 max-w-2xl space-y-3"
         >
           <h1
-            className="font-display font-bold tracking-tight text-white leading-[1.0] text-balance"
-            style={{ fontSize: 'clamp(2.35rem, 4.2vw, 3.85rem)' }}
+            className="font-display font-bold tracking-tight text-white leading-[1.06] text-balance"
+            style={{ fontSize: 'clamp(1.85rem, 3.3vw, 3.1rem)' }}
           >
-            Perspolis Vancouver
+            Persepolis Vancouver Football Club Society (PVFCS)
           </h1>
           <p className="text-sm text-slate-300 leading-relaxed max-w-lg">
             Sign in to confirm matchday attendance, view balanced squad formations, and track club standings every week.
@@ -625,8 +441,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
                   </h2>
                   <p className="text-sm text-slate-600 mt-1">
                     {mode === 'signin'
-                      ? 'Access weekly match polls, tactical pitches, and your club stats.'
-                      : 'Create your account with email confirmation (password min 6 characters).'}
+                      ? 'Sign in with your personal username or email to access weekly match polls and stats.'
+                      : 'Create your account with a personal username and strong password (min 8 chars).'}
                   </p>
                 </div>
 
@@ -687,31 +503,93 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
                 </AnimatePresence>
 
                 <form onSubmit={handleEmailAuth} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email Address</label>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="player@vancouverfc.ca"
-                      className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-shadow"
-                    />
-                  </div>
+                  {mode === 'signin' ? (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Email Address or Personal Username
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={loginIdentifier}
+                        onChange={(e) => setLoginIdentifier(e.target.value)}
+                        placeholder="player@vancouverfc.ca or ali"
+                        autoComplete="username"
+                        className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-shadow"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-semibold text-slate-700">
+                            Personal Username <span className="font-normal text-slate-500">(for easy login)</span>
+                          </label>
+                        </div>
+                        <input
+                          type="text"
+                          value={signupUsername}
+                          onChange={(e) =>
+                            setSignupUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, ''))
+                          }
+                          placeholder="ali"
+                          maxLength={24}
+                          className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-shadow font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email Address *</label>
+                        <input
+                          type="email"
+                          required
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="player@vancouverfc.ca"
+                          className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-shadow"
+                        />
+                      </div>
+                    </>
+                  )}
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Password <span className="font-normal text-slate-500">(at least 6 characters)</span>
+                      Password {mode === 'signup' && <span className="font-normal text-slate-500">(standard strong)</span>}
                     </label>
                     <input
                       type="password"
                       required
-                      minLength={6}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••"
+                      placeholder="••••••••"
                       className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-shadow"
                     />
+
+                    {/* Live Strong Password Checklist (Standard OWASP Criteria) */}
+                    {mode === 'signup' && (
+                      <div className="mt-2.5 p-2.5 rounded-lg bg-slate-50 border border-slate-200 grid grid-cols-2 gap-1.5 text-[11px]">
+                        <div className={`flex items-center gap-1.5 ${pwdMinLen ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`}>
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${pwdMinLen ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>✓</span>
+                          8+ characters
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${pwdHasUpper ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`}>
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${pwdHasUpper ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>✓</span>
+                          Uppercase letter (A-Z)
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${pwdHasLower ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`}>
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${pwdHasLower ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>✓</span>
+                          Lowercase letter (a-z)
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${pwdHasDigit ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`}>
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${pwdHasDigit ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>✓</span>
+                          Number (0-9)
+                        </div>
+                        <div className={`flex items-center gap-1.5 col-span-2 ${pwdHasSpecial ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`}>
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${pwdHasSpecial ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>✓</span>
+                          Special character (!@#$%^&*)
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <AnimatePresence initial={false}>
@@ -727,10 +605,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
                         <input
                           type="password"
                           required
-                          minLength={6}
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="••••••"
+                          placeholder="••••••••"
                           className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-shadow"
                         />
                       </motion.div>

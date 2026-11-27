@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User } from 'firebase/auth';
 import { deleteDoc, doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { motion, useReducedMotion } from 'motion/react';
 import { BookOpen, Plus, Trash2, X } from 'lucide-react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { EducationPost, PlayerProfile, SOCCER_POSITIONS } from '../types';
@@ -10,6 +11,149 @@ interface EducationViewProps {
   profile: PlayerProfile;
   posts: EducationPost[];
 }
+
+interface PitchMarker {
+  id: string;
+  team: 'emerald' | 'amber';
+  role: string;
+  phases: Array<{ x: number; y: number }>;
+}
+
+// Three realistic tactical phases across a horizontal 360x200 pitch SVG
+const TACTICAL_MARKERS: PitchMarker[] = [
+  // Emerald squad (attacking left -> right)
+  {
+    id: 'e-gk',
+    team: 'emerald',
+    role: 'GK',
+    phases: [
+      { x: 24, y: 100 },
+      { x: 28, y: 98 },
+      { x: 24, y: 102 },
+    ],
+  },
+  {
+    id: 'e-def1',
+    team: 'emerald',
+    role: 'CB',
+    phases: [
+      { x: 86, y: 60 },
+      { x: 108, y: 52 },
+      { x: 96, y: 66 },
+    ],
+  },
+  {
+    id: 'e-def2',
+    team: 'emerald',
+    role: 'CB',
+    phases: [
+      { x: 86, y: 140 },
+      { x: 112, y: 144 },
+      { x: 96, y: 134 },
+    ],
+  },
+  {
+    id: 'e-mid',
+    team: 'emerald',
+    role: 'CM',
+    phases: [
+      { x: 158, y: 100 },
+      { x: 196, y: 72 },
+      { x: 174, y: 122 },
+    ],
+  },
+  {
+    id: 'e-wing',
+    team: 'emerald',
+    role: 'RW',
+    phases: [
+      { x: 196, y: 46 },
+      { x: 256, y: 40 },
+      { x: 230, y: 68 },
+    ],
+  },
+  {
+    id: 'e-st',
+    team: 'emerald',
+    role: 'ST',
+    phases: [
+      { x: 224, y: 136 },
+      { x: 278, y: 104 },
+      { x: 248, y: 112 },
+    ],
+  },
+  // Amber squad (defending / countering right -> left)
+  {
+    id: 'a-gk',
+    team: 'amber',
+    role: 'GK',
+    phases: [
+      { x: 336, y: 100 },
+      { x: 334, y: 102 },
+      { x: 336, y: 98 },
+    ],
+  },
+  {
+    id: 'a-def1',
+    team: 'amber',
+    role: 'CB',
+    phases: [
+      { x: 274, y: 64 },
+      { x: 292, y: 68 },
+      { x: 258, y: 58 },
+    ],
+  },
+  {
+    id: 'a-def2',
+    team: 'amber',
+    role: 'CB',
+    phases: [
+      { x: 274, y: 136 },
+      { x: 292, y: 134 },
+      { x: 252, y: 142 },
+    ],
+  },
+  {
+    id: 'a-mid',
+    team: 'amber',
+    role: 'CM',
+    phases: [
+      { x: 204, y: 100 },
+      { x: 232, y: 96 },
+      { x: 184, y: 90 },
+    ],
+  },
+  {
+    id: 'a-wing',
+    team: 'amber',
+    role: 'LW',
+    phases: [
+      { x: 162, y: 152 },
+      { x: 194, y: 154 },
+      { x: 140, y: 144 },
+    ],
+  },
+  {
+    id: 'a-st',
+    team: 'amber',
+    role: 'ST',
+    phases: [
+      { x: 138, y: 54 },
+      { x: 168, y: 76 },
+      { x: 118, y: 72 },
+    ],
+  },
+];
+
+// Ball follows passing sequence through the tactical phases
+const BALL_TRAJECTORY = [
+  { x: 158, y: 100 }, // CM starts on the ball
+  { x: 196, y: 46 },  // Driven out wide to RW
+  { x: 256, y: 40 },  // RW advances down the flank
+  { x: 278, y: 104 }, // Cutback into ST at the box
+  { x: 230, y: 68 },  // Recycle through pressing shape
+  { x: 174, y: 122 }, // Reset across midfield
+];
 
 const CATEGORIES: EducationPost['category'][] = [
   'Tactics',
@@ -31,6 +175,9 @@ export const EducationView: React.FC<EducationViewProps> = ({ user, profile, pos
   const [content, setContent] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [heroImgFailed, setHeroImgFailed] = useState(false);
+
+  const shouldReduceMotion = useReducedMotion();
 
   const filteredPosts = posts.filter((p) => filterCat === 'All' || p.category === filterCat);
 
@@ -107,20 +254,22 @@ export const EducationView: React.FC<EducationViewProps> = ({ user, profile, pos
         </h1>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg overflow-x-auto">
-            {(['All', ...CATEGORIES] as const).map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setFilterCat(cat)}
-                className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
-                  filterCat === cat ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+          {posts.length > 0 && (
+            <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg overflow-x-auto">
+              {(['All', ...CATEGORIES] as const).map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setFilterCat(cat)}
+                  className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                    filterCat === cat ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
 
           {isManagerOrAdmin && (
             <button
@@ -143,6 +292,132 @@ export const EducationView: React.FC<EducationViewProps> = ({ user, profile, pos
       {error && (
         <div className="p-3.5 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800">{error}</div>
       )}
+
+      {/* Animated Moving Circles Tactical Field Showcase */}
+      <div className="relative overflow-hidden rounded-2xl bg-slate-950 border border-slate-800 p-6 sm:p-10 shadow-xl flex flex-col items-center justify-center">
+        {!heroImgFailed ? (
+          <img
+            src="/src/assets/images/vancouver_pitch_hero_1794555179079.jpg"
+            alt="Evening floodlit soccer pitch"
+            referrerPolicy="no-referrer"
+            onError={() => setHeroImgFailed(true)}
+            className="absolute inset-0 w-full h-full object-cover opacity-45"
+          />
+        ) : (
+          <div className="absolute inset-0 w-full h-full pitch-stripes opacity-45" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/75 to-slate-950/60" />
+
+        <motion.div
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 12, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.45, ease: 'easeOut' }}
+          className="relative z-10 w-full max-w-2xl mx-auto"
+        >
+          <svg
+            viewBox="0 0 360 200"
+            className="w-full h-auto block"
+            role="img"
+            aria-label="Animated 6-a-side tactical pitch formation"
+          >
+            {/* Translucent chalk pitch markings */}
+            <g stroke="rgba(255,255,255,0.34)" strokeWidth="1.25" fill="none">
+              <rect x="12" y="12" width="336" height="176" rx="4" />
+              <line x1="180" y1="12" x2="180" y2="188" />
+              <circle cx="180" cy="100" r="28" />
+              <circle cx="180" cy="100" r="2" fill="rgba(255,255,255,0.45)" />
+              {/* Left & Right penalty boxes */}
+              <rect x="12" y="54" width="44" height="92" />
+              <rect x="12" y="76" width="16" height="48" />
+              <rect x="304" y="54" width="44" height="92" />
+              <rect x="332" y="76" width="16" height="48" />
+            </g>
+
+            {/* Semi-Transparent Moving Tactical Player Nodes */}
+            {TACTICAL_MARKERS.map((marker) => {
+              const isEmerald = marker.team === 'emerald';
+              const start = marker.phases[0];
+              const xs = marker.phases.map((p) => p.x);
+              const ys = marker.phases.map((p) => p.y);
+              return (
+                <motion.g
+                  key={marker.id}
+                  opacity={0.82}
+                  initial={{ x: start.x, y: start.y }}
+                  animate={
+                    shouldReduceMotion
+                      ? { x: start.x, y: start.y }
+                      : {
+                          x: [...xs, start.x],
+                          y: [...ys, start.y],
+                        }
+                  }
+                  transition={{
+                    duration: 12,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                >
+                  <circle
+                    cx="0"
+                    cy="0"
+                    r="11.5"
+                    fill={isEmerald ? 'rgba(16, 185, 129, 0.18)' : 'rgba(245, 158, 11, 0.18)'}
+                  />
+                  <circle
+                    cx="0"
+                    cy="0"
+                    r="8.5"
+                    fill={isEmerald ? 'rgba(5, 150, 105, 0.72)' : 'rgba(217, 119, 6, 0.72)'}
+                    stroke="rgba(255, 255, 255, 0.78)"
+                    strokeWidth="1.25"
+                  />
+                  <text
+                    x="0"
+                    y="2.8"
+                    textAnchor="middle"
+                    fill="rgba(255, 255, 255, 0.95)"
+                    fontSize="6.5"
+                    fontWeight="700"
+                    fontFamily="JetBrains Mono, monospace"
+                  >
+                    {marker.role}
+                  </text>
+                </motion.g>
+              );
+            })}
+
+            {/* Semi-Transparent Animated Soccer Ball */}
+            <motion.g
+              opacity={0.88}
+              initial={{ x: BALL_TRAJECTORY[0].x, y: BALL_TRAJECTORY[0].y }}
+              animate={
+                shouldReduceMotion
+                  ? { x: BALL_TRAJECTORY[0].x, y: BALL_TRAJECTORY[0].y }
+                  : {
+                      x: [...BALL_TRAJECTORY.map((p) => p.x), BALL_TRAJECTORY[0].x],
+                      y: [...BALL_TRAJECTORY.map((p) => p.y), BALL_TRAJECTORY[0].y],
+                    }
+              }
+              transition={{
+                duration: 12,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            >
+              <circle cx="0" cy="0" r="8" fill="rgba(255, 255, 255, 0.22)" />
+              <circle
+                cx="0"
+                cy="0"
+                r="4.5"
+                fill="rgba(255, 255, 255, 0.9)"
+                stroke="rgba(15, 23, 42, 0.85)"
+                strokeWidth="1.2"
+              />
+            </motion.g>
+          </svg>
+        </motion.div>
+      </div>
 
       {creating && isManagerOrAdmin && (
         <form
@@ -246,17 +521,7 @@ export const EducationView: React.FC<EducationViewProps> = ({ user, profile, pos
         </form>
       )}
 
-      {filteredPosts.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-2">
-          <BookOpen className="w-9 h-9 text-slate-400 mx-auto" />
-          <h2 className="font-display text-2xl font-bold text-slate-900">No Educational Guides Yet</h2>
-          <p className="text-sm text-slate-500">
-            {isManagerOrAdmin
-              ? 'Publish your first tactical guide or warm-up protocol using the button above.'
-              : 'Club managers will post tactical briefings and conditioning notes here.'}
-          </p>
-        </div>
-      ) : (
+      {filteredPosts.length > 0 && (
         <div className="grid lg:grid-cols-12 gap-6">
           <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden self-start">
             {filteredPosts.map((post) => (
