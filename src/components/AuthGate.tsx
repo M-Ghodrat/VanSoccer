@@ -11,7 +11,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { AlertCircle, ArrowRight, CheckCircle2, Mail, RefreshCw, Trash2 } from 'lucide-react';
 import { auth } from '../firebase';
 import { ClubBrandMark } from './ClubBrandMark';
-import { googleSignInWithGmail } from '../utils/gmailAuth';
+import { standardGoogleSignIn } from '../utils/gmailAuth';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface AuthGateProps {
@@ -180,7 +180,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ unverifiedUser, onUserVerifi
     setNotice(null);
     setGoogleLoading(true);
     try {
-      await googleSignInWithGmail();
+      await standardGoogleSignIn();
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code || '';
       if (code === 'auth/popup-closed-by-user') {

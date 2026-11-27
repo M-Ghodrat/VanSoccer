@@ -1,0 +1,759 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'mohsenghodrat2@gmail.com'
+      );
+    }
+
+    function isManager() {
+      return isVerifiedUser() && (
+        isAdmin() ||
+        exists(/databases/$(database)/documents/managers/$(request.auth.uid))
+      );
+    }
+
+    // 3. Entity Validation Helpers
+    function isValidAdmin(data) {
+      return data.keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 120
+        && data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isValidManager(data) {
+      return data.keys().hasAll(['uid', 'grantedBy', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'grantedBy', 'createdAt'])
+        && isValidId(data.uid)
+        && data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function isSafeHttpUrl(url) {
+      return url == ''
+        || (url > 'https://' && url < 'https:/0')
+        || (url > 'http://' && url < 'http:/0');
+    }
+
+    function isSafeImageOrDataUrl(url) {
+      return url == ''
+        || (url > 'https://' && url < 'https:/0')
+        || (url > 'http://' && url < 'http:/0')
+        || (url > 'data:image/' && url < 'data:image0');
+    }
+
+    function isValidPlayerBusiness(biz) {
+      return biz is map
+        && biz.keys().hasAll(['businessName', 'category', 'tagline', 'phone', 'website', 'address', 'allowPromotion'])
+        && biz.keys().hasOnly(['id', 'businessName', 'category', 'tagline', 'phone', 'website', 'address', 'logoUrl', 'allowPromotion'])
+        && (!('id' in biz) || biz.id == null || (biz.id is string && biz.id.size() <= 64))
+        && biz.businessName is string && biz.businessName.size() <= 80
+        && biz.category is string && biz.category.size() <= 50
+        && biz.tagline is string && biz.tagline.size() <= 160
+        && biz.phone is string && biz.phone.size() <= 30
+        && biz.website is string && biz.website.size() <= 300
+        && isSafeHttpUrl(biz.website)
+        && biz.address is string && biz.address.size() <= 120
+        && (!('logoUrl' in biz) || biz.logoUrl == null || (biz.logoUrl is string && biz.logoUrl.size() <= 80000 && isSafeImageOrDataUrl(biz.logoUrl)))
+        && biz.allowPromotion is bool;
+    }
+
+    function isValidPlayerBusinessesList(businesses) {
+      return businesses is list
+        && businesses.size() <= 5
+        && (businesses.size() == 0 || isValidPlayerBusiness(businesses[0]))
+        && (businesses.size() < 2 || isValidPlayerBusiness(businesses[1]))
+        && (businesses.size() < 3 || isValidPlayerBusiness(businesses[2]))
+        && (businesses.size() < 4 || isValidPlayerBusiness(businesses[3]))
+        && (businesses.size() < 5 || isValidPlayerBusiness(businesses[4]));
+    }
+
+    function isValidPlayer(data) {
+      return data.keys().hasAll([
+          'uid', 'firstName', 'lastName', 'age', 'favoritePositions',
+          'photoStatus', 'approvedPhotoUrl', 'role', 'appearances',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'firstName', 'lastName', 'age', 'favoritePositions',
+          'photoStatus', 'approvedPhotoUrl', 'approvedPitchPhotoUrl',
+          'pitchCollarStyle', 'pitchSkinTone', 'role', 'appearances',
+          'business', 'businesses', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 60
+        && data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 60
+        && data.age is number && data.age >= 12 && data.age <= 99
+        && data.favoritePositions is list
+        && data.favoritePositions.size() == 3
+        && data.favoritePositions[0] is string && data.favoritePositions[0].size() >= 1 && data.favoritePositions[0].size() <= 16
+        && data.favoritePositions[1] is string && data.favoritePositions[1].size() >= 1 && data.favoritePositions[1].size() <= 16
+        && data.favoritePositions[2] is string && data.favoritePositions[2].size() >= 1 && data.favoritePositions[2].size() <= 16
+        && data.photoStatus in ['none', 'pending', 'approved', 'rejected']
+        && data.approvedPhotoUrl is string && data.approvedPhotoUrl.size() <= 350000
+        && (!('approvedPitchPhotoUrl' in data) || data.approvedPitchPhotoUrl == null || (data.approvedPitchPhotoUrl is string && data.approvedPitchPhotoUrl.size() <= 350000))
+        && (!('pitchCollarStyle' in data) || data.pitchCollarStyle == null || data.pitchCollarStyle == '' || data.pitchCollarStyle in ['crew', 'polo', 'high'])
+        && (!('pitchSkinTone' in data) || data.pitchSkinTone == null || data.pitchSkinTone == '' || (data.pitchSkinTone is string && data.pitchSkinTone.size() <= 16 && data.pitchSkinTone.matches('^#[0-9a-fA-F]{6}$')))
+        && data.role in ['player', 'manager', 'admin']
+        && data.appearances is number && data.appearances >= 0 && data.appearances <= 10000
+        && (!('business' in data) || data.business == null || isValidPlayerBusiness(data.business))
+        && (!('businesses' in data) || data.businesses == null || isValidPlayerBusinessesList(data.businesses))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPlayerPrivate(data) {
+      return data.keys().hasAll(['uid', 'email', 'dob', 'phone', 'emergencyContact', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'dob', 'phone', 'emergencyContact', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 120
+        && data.dob is string && data.dob.size() == 10 && data.dob.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.phone is string && data.phone.size() >= 5 && data.phone.size() <= 30
+        && data.emergencyContact is string && data.emergencyContact.size() >= 5 && data.emergencyContact.size() <= 30
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPlayerPhoto(data) {
+      return data.keys().hasAll(['uid', 'pendingPhotoData', 'status', 'rejectionReason', 'submittedAt'])
+        && data.keys().hasOnly(['uid', 'pendingPhotoData', 'pendingPitchPhotoData', 'pitchCollarStyle', 'pitchSkinTone', 'status', 'rejectionReason', 'submittedAt'])
+        && isValidId(data.uid)
+        && data.pendingPhotoData is string && data.pendingPhotoData.size() <= 180000
+        && (!('pendingPitchPhotoData' in data) || (data.pendingPitchPhotoData is string && data.pendingPitchPhotoData.size() <= 180000))
+        && (!('pitchCollarStyle' in data) || data.pitchCollarStyle in ['crew', 'polo', 'high'])
+        && (!('pitchSkinTone' in data) || (data.pitchSkinTone is string && data.pitchSkinTone.size() <= 16 && data.pitchSkinTone.matches('^(#[0-9a-fA-F]{6})?$')))
+        && data.status in ['pending', 'approved', 'rejected']
+        && data.rejectionReason is string && data.rejectionReason.size() <= 300
+        && data.submittedAt is timestamp;
+    }
+
+    function isValidPlayerRating(data) {
+      return data.keys().hasAll([
+          'playerId', 'managerId', 'managerName', 'skill', 'stamina',
+          'assessedPositions', 'notes', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'playerId', 'managerId', 'managerName', 'skill', 'stamina',
+          'overall', 'attack', 'technique', 'defense', 'speed', 'physics',
+          'assessedPositions', 'notes', 'updatedAt'
+        ])
+        && isValidId(data.playerId)
+        && isValidId(data.managerId)
+        && data.managerName is string && data.managerName.size() >= 1 && data.managerName.size() <= 100
+        && data.skill is number && data.skill >= 0 && data.skill <= 100
+        && data.stamina is number && data.stamina >= 0 && data.stamina <= 100
+        && (!('overall' in data) || (data.overall is number && data.overall >= 0 && data.overall <= 100))
+        && (!('attack' in data) || (data.attack is number && data.attack >= 0 && data.attack <= 100))
+        && (!('technique' in data) || (data.technique is number && data.technique >= 0 && data.technique <= 100))
+        && (!('defense' in data) || (data.defense is number && data.defense >= 0 && data.defense <= 100))
+        && (!('speed' in data) || (data.speed is number && data.speed >= 0 && data.speed <= 100))
+        && (!('physics' in data) || (data.physics is number && data.physics >= 0 && data.physics <= 100))
+        && data.assessedPositions is list
+        && data.assessedPositions.size() >= 1 && data.assessedPositions.size() <= 3
+        && data.assessedPositions[0] is string && data.assessedPositions[0].size() >= 1 && data.assessedPositions[0].size() <= 16
+        && (data.assessedPositions.size() < 2 || (data.assessedPositions[1] is string && data.assessedPositions[1].size() <= 16))
+        && (data.assessedPositions.size() < 3 || (data.assessedPositions[2] is string && data.assessedPositions[2].size() <= 16))
+        && data.notes is string && data.notes.size() <= 400
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidClubConfig(data) {
+      return data.keys().hasAll([
+          'pollOpenDay', 'pollOpenTime', 'pollLockDay', 'pollLockTime',
+          'matchDay', 'matchTime', 'matchLocation', 'defaultTeamColors',
+          'updatedBy', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'pollOpenDay', 'pollOpenTime', 'pollLockDay', 'pollLockTime',
+          'matchDay', 'matchTime', 'matchLocation', 'defaultTeamColors',
+          'maxPlayers', 'skillArrowThresholds', 'updatedBy', 'updatedAt'
+        ])
+        && data.pollOpenDay is number && data.pollOpenDay >= 0 && data.pollOpenDay <= 6
+        && data.pollOpenTime is string && data.pollOpenTime.size() == 5 && data.pollOpenTime.matches('^[0-9]{2}:[0-9]{2}$')
+        && data.pollLockDay is number && data.pollLockDay >= 0 && data.pollLockDay <= 6
+        && data.pollLockTime is string && data.pollLockTime.size() == 5 && data.pollLockTime.matches('^[0-9]{2}:[0-9]{2}$')
+        && data.matchDay is number && data.matchDay >= 0 && data.matchDay <= 6
+        && data.matchTime is string && data.matchTime.size() == 5 && data.matchTime.matches('^[0-9]{2}:[0-9]{2}$')
+        && data.matchLocation is string && data.matchLocation.size() >= 1 && data.matchLocation.size() <= 120
+        && data.defaultTeamColors is list && data.defaultTeamColors.size() == 4
+        && data.defaultTeamColors[0] is string && data.defaultTeamColors[0].size() >= 1 && data.defaultTeamColors[0].size() <= 30
+        && data.defaultTeamColors[1] is string && data.defaultTeamColors[1].size() >= 1 && data.defaultTeamColors[1].size() <= 30
+        && data.defaultTeamColors[2] is string && data.defaultTeamColors[2].size() >= 1 && data.defaultTeamColors[2].size() <= 30
+        && data.defaultTeamColors[3] is string && data.defaultTeamColors[3].size() >= 1 && data.defaultTeamColors[3].size() <= 30
+        && (!('maxPlayers' in data) || (data.maxPlayers is number && data.maxPlayers >= 4 && data.maxPlayers <= 100))
+        && (!('skillArrowThresholds' in data) || (
+          data.skillArrowThresholds is list
+          && data.skillArrowThresholds.size() == 4
+          && data.skillArrowThresholds[0] is number && data.skillArrowThresholds[0] >= 1 && data.skillArrowThresholds[0] <= 96
+          && data.skillArrowThresholds[1] is number && data.skillArrowThresholds[1] > data.skillArrowThresholds[0] && data.skillArrowThresholds[1] <= 97
+          && data.skillArrowThresholds[2] is number && data.skillArrowThresholds[2] > data.skillArrowThresholds[1] && data.skillArrowThresholds[2] <= 98
+          && data.skillArrowThresholds[3] is number && data.skillArrowThresholds[3] > data.skillArrowThresholds[2] && data.skillArrowThresholds[3] <= 99
+        ))
+        && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPostGameStats(stats) {
+      return stats is map
+        && stats.keys().hasAll(['absentUids', 'lateUids'])
+        && stats.keys().hasOnly([
+          'games', 'absentUids', 'lateUids', 'playerMatchRatings',
+          'bestPlayerUid', 'topScorerUid', 'notes', 'updatedBy', 'updatedAt'
+        ])
+        && stats.absentUids is list && stats.absentUids.size() <= 120
+        && (stats.absentUids.size() == 0 || (stats.absentUids[0] is string && stats.absentUids[0].size() >= 1 && stats.absentUids[0].size() <= 128))
+        && stats.lateUids is list && stats.lateUids.size() <= 120
+        && (stats.lateUids.size() == 0 || (stats.lateUids[0] is string && stats.lateUids[0].size() >= 1 && stats.lateUids[0].size() <= 128))
+        && (!('games' in stats) || (
+          stats.games is list && stats.games.size() <= 30
+          && (stats.games.size() == 0 || stats.games[0] is map)
+        ))
+        && (!('playerMatchRatings' in stats) || stats.playerMatchRatings == null || stats.playerMatchRatings is map)
+        && (!('bestPlayerUid' in stats) || (stats.bestPlayerUid is string && stats.bestPlayerUid.size() <= 128))
+        && (!('topScorerUid' in stats) || (stats.topScorerUid is string && stats.topScorerUid.size() <= 128))
+        && (!('notes' in stats) || (stats.notes is string && stats.notes.size() <= 500))
+        && (!('updatedBy' in stats) || (stats.updatedBy is string && stats.updatedBy.size() <= 128))
+        && (!('updatedAt' in stats) || stats.updatedAt == null || stats.updatedAt is timestamp || (stats.updatedAt is string && stats.updatedAt.size() <= 40));
+    }
+
+    function isValidMatch(data) {
+      return data.keys().hasAll([
+          'id', 'title', 'weekKey', 'location', 'kickoffIso',
+          'pollOpensAtIso', 'pollLocksAtIso', 'status', 'teamCount',
+          'teamColors', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'weekKey', 'location', 'kickoffIso',
+          'pollOpensAtIso', 'pollLocksAtIso', 'status', 'teamCount',
+          'teamColors', 'aiOriginalFormation', 'currentFormation',
+          'finalizedPlayerTeams', 'formationAttendingUids', 'postGameStats',
+          'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 120
+        && data.weekKey is string && data.weekKey.size() >= 4 && data.weekKey.size() <= 20
+        && data.location is string && data.location.size() >= 1 && data.location.size() <= 120
+        && data.kickoffIso is string && data.kickoffIso.size() >= 10 && data.kickoffIso.size() <= 40
+        && data.pollOpensAtIso is string && data.pollOpensAtIso.size() >= 10 && data.pollOpensAtIso.size() <= 40
+        && data.pollLocksAtIso is string && data.pollLocksAtIso.size() >= 10 && data.pollLocksAtIso.size() <= 40
+        && data.status in ['open', 'locked', 'completed']
+        && data.teamCount in [2, 3, 4]
+        && data.teamColors is list && data.teamColors.size() >= 2 && data.teamColors.size() <= 4
+        && data.teamColors[0] is string && data.teamColors[0].size() >= 1 && data.teamColors[0].size() <= 30
+        && data.teamColors[1] is string && data.teamColors[1].size() >= 1 && data.teamColors[1].size() <= 30
+        && (data.teamColors.size() < 3 || (data.teamColors[2] is string && data.teamColors[2].size() >= 1 && data.teamColors[2].size() <= 30))
+        && (data.teamColors.size() < 4 || (data.teamColors[3] is string && data.teamColors[3].size() >= 1 && data.teamColors[3].size() <= 30))
+        && (!('aiOriginalFormation' in data) || data.aiOriginalFormation == null || data.aiOriginalFormation is map)
+        && (!('currentFormation' in data) || data.currentFormation == null || data.currentFormation is map)
+        && (!('finalizedPlayerTeams' in data) || data.finalizedPlayerTeams == null || (data.finalizedPlayerTeams is list && data.finalizedPlayerTeams.size() <= 120))
+        && (!('formationAttendingUids' in data) || data.formationAttendingUids == null || (
+          data.formationAttendingUids is list
+          && data.formationAttendingUids.size() <= 120
+          && (data.formationAttendingUids.size() == 0 || (data.formationAttendingUids[0] is string && data.formationAttendingUids[0].size() >= 1 && data.formationAttendingUids[0].size() <= 128))
+        ))
+        && (!('postGameStats' in data) || data.postGameStats == null || isValidPostGameStats(data.postGameStats))
+        && data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVote(data) {
+      return data.keys().hasAll(['uid', 'matchId', 'attending', 'goalieOption', 'playerName', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'matchId', 'attending', 'goalieOption', 'playerName', 'joinedAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isValidId(data.matchId)
+        && data.attending is bool
+        && data.goalieOption in ['none', 'willing', 'only_goalie']
+        && data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 100
+        && (!('joinedAt' in data) || data.joinedAt == null || data.joinedAt is timestamp)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidEducationPost(data) {
+      return data.keys().hasAll([
+          'id', 'title', 'category', 'targetPositions', 'summary',
+          'content', 'authorId', 'authorName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'category', 'targetPositions', 'summary',
+          'content', 'authorId', 'authorName', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.title is string && data.title.size() >= 3 && data.title.size() <= 140
+        && data.category in ['Tactics', 'Positioning', 'Conditioning', 'Rules & Fair Play']
+        && data.targetPositions is list && data.targetPositions.size() <= 10
+        && (data.targetPositions.size() == 0 || (data.targetPositions[0] is string && data.targetPositions[0].size() <= 16))
+        && data.summary is string && data.summary.size() >= 5 && data.summary.size() <= 400
+        && data.content is string && data.content.size() >= 10 && data.content.size() <= 5000
+        && isValidId(data.authorId)
+        && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidClubPayment(data) {
+      return data.keys().hasAll(['id', 'uid', 'monthKey', 'paid', 'amount', 'recordedBy', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'uid', 'monthKey', 'paid', 'amount', 'recordedBy', 'source', 'gmailMessageId', 'receiptDateIso', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.uid)
+        && data.monthKey is string && data.monthKey.size() == 7 && data.monthKey.matches('^[0-9]{4}-[0-9]{2}$')
+        && data.paid is bool
+        && data.amount is number && data.amount >= 0 && data.amount <= 1000
+        && isValidId(data.recordedBy)
+        && (!('source' in data) || data.source in ['manual', 'gmail'])
+        && (!('gmailMessageId' in data) || (data.gmailMessageId is string && data.gmailMessageId.size() <= 128 && data.gmailMessageId.matches('^[a-zA-Z0-9_\\-]*$')))
+        && (!('receiptDateIso' in data) || (data.receiptDateIso is string && data.receiptDateIso.size() <= 40))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPaymentSenderAlias(data) {
+      return data.keys().hasAll(['id', 'senderKey', 'senderLabel', 'uid', 'updatedBy', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'senderKey', 'senderLabel', 'uid', 'updatedBy', 'updatedAt'])
+        && isValidId(data.id)
+        && data.senderKey is string && data.senderKey.size() >= 2 && data.senderKey.size() <= 160
+        && data.senderLabel is string && data.senderLabel.size() >= 1 && data.senderLabel.size() <= 160
+        && isValidId(data.uid)
+        && isValidId(data.updatedBy)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll([
+          'id', 'recipientUid', 'matchId', 'matchTitle', 'type',
+          'message', 'read', 'createdBy', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'recipientUid', 'matchId', 'matchTitle', 'type',
+          'message', 'read', 'createdBy', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.recipientUid)
+        && isValidId(data.matchId)
+        && data.matchTitle is string && data.matchTitle.size() >= 1 && data.matchTitle.size() <= 120
+        && data.type in ['waitlist_promoted']
+        && data.message is string && data.message.size() >= 5 && data.message.size() <= 400
+        && data.read is bool
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRibbonItem(item) {
+      return item is map
+        && item.keys().hasAll(['id', 'type', 'title', 'text', 'active'])
+        && item.keys().hasOnly([
+          'id', 'type', 'title', 'text', 'active', 'imageUrl',
+          'linkedPlayerUid', 'ownerName', 'category', 'phone',
+          'website', 'address', 'startsAtIso', 'expiresAtIso'
+        ])
+        && item.id is string && item.id.size() >= 1 && item.id.size() <= 64
+        && item.type in ['business', 'news', 'announcement']
+        && item.title is string && item.title.size() >= 1 && item.title.size() <= 80
+        && item.text is string && item.text.size() <= 180
+        && item.active is bool
+        && (!('imageUrl' in item) || (item.imageUrl is string && item.imageUrl.size() <= 80000))
+        && (!('linkedPlayerUid' in item) || (item.linkedPlayerUid is string && item.linkedPlayerUid.size() <= 128))
+        && (!('ownerName' in item) || (item.ownerName is string && item.ownerName.size() <= 80))
+        && (!('category' in item) || (item.category is string && item.category.size() <= 50))
+        && (!('phone' in item) || (item.phone is string && item.phone.size() <= 30))
+        && (!('website' in item) || (item.website is string && item.website.size() <= 300 && isSafeHttpUrl(item.website)))
+        && (!('address' in item) || (item.address is string && item.address.size() <= 120))
+        && (!('startsAtIso' in item) || (item.startsAtIso is string && item.startsAtIso.size() <= 40))
+        && (!('expiresAtIso' in item) || (item.expiresAtIso is string && item.expiresAtIso.size() <= 40));
+    }
+
+    function isValidRibbonConfig(data) {
+      return data.keys().hasAll(['enabled', 'mode', 'speed', 'items', 'updatedBy', 'updatedAt'])
+        && data.keys().hasOnly([
+          'enabled', 'mode', 'speed', 'items',
+          'themePreset', 'bgColor', 'accentColor', 'textColor',
+          'width', 'height', 'direction', 'autoRotateSeconds',
+          'borderAccent', 'showControls', 'updatedBy', 'updatedAt'
+        ])
+        && data.enabled is bool
+        && data.mode in ['moving', 'static']
+        && data.speed in ['slow', 'normal', 'brisk', 'fast']
+        && (!('themePreset' in data) || (data.themePreset is string && data.themePreset.size() <= 40))
+        && (!('bgColor' in data) || (data.bgColor is string && data.bgColor.size() == 7 && data.bgColor.matches('^#[0-9a-fA-F]{6}$')))
+        && (!('accentColor' in data) || (data.accentColor is string && data.accentColor.size() == 7 && data.accentColor.matches('^#[0-9a-fA-F]{6}$')))
+        && (!('textColor' in data) || (data.textColor is string && data.textColor.size() == 7 && data.textColor.matches('^#[0-9a-fA-F]{6}$')))
+        && (!('width' in data) || data.width in ['full', 'wide', 'compact'])
+        && (!('height' in data) || data.height in ['slim', 'standard', 'tall'])
+        && (!('direction' in data) || data.direction in ['left', 'right'])
+        && (!('autoRotateSeconds' in data) || (data.autoRotateSeconds is number && data.autoRotateSeconds >= 0 && data.autoRotateSeconds <= 120))
+        && (!('borderAccent' in data) || data.borderAccent is bool)
+        && (!('showControls' in data) || data.showControls is bool)
+        && data.items is list && data.items.size() <= 20
+        && (data.items.size() == 0 || isValidRibbonItem(data.items[0]))
+        && isValidId(data.updatedBy)
+        && data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Rules
+
+    match /test/{docId} {
+      allow get: if isValidId(docId) && isSignedIn();
+    }
+
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin() && resource.data.uid > '';
+      allow create: if isValidId(uid) && isAdmin() && isValidAdmin(incoming())
+        && incoming().uid == uid && incoming().createdAt == request.time;
+      allow update: if isValidId(uid) && isAdmin() && isValidAdmin(incoming())
+        && incoming().uid == existing().uid && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(uid) && isAdmin();
+    }
+
+    match /managers/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isManager());
+      allow list: if isManager() && resource.data.uid > '';
+      allow create: if isValidId(uid) && isAdmin() && isValidManager(incoming())
+        && incoming().uid == uid && incoming().createdAt == request.time;
+      allow update: if isValidId(uid) && isAdmin() && isValidManager(incoming())
+        && incoming().uid == existing().uid && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(uid) && isAdmin();
+    }
+
+    match /players/{uid} {
+      allow get: if isValidId(uid) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.role in ['player', 'manager', 'admin'];
+      allow create: if isValidId(uid)
+        && isVerifiedUser()
+        && isValidPlayer(incoming())
+        && incoming().uid == uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            isOwner(uid)
+            && incoming().role == 'player'
+            && incoming().photoStatus in ['none', 'pending']
+            && incoming().approvedPhotoUrl == ''
+            && (!('approvedPitchPhotoUrl' in incoming()) || incoming().approvedPitchPhotoUrl == '')
+            && incoming().appearances == 0
+          )
+        );
+      allow update: if isValidId(uid)
+        && isVerifiedUser()
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && (
+          (
+            (isOwner(uid) || isAdmin())
+            && incoming().diff(existing()).affectedKeys().hasOnly(['businesses', 'business', 'updatedAt'])
+            && (!('business' in incoming()) || incoming().business == null || isValidPlayerBusiness(incoming().business))
+            && (!('businesses' in incoming()) || incoming().businesses == null || isValidPlayerBusinessesList(incoming().businesses))
+          ) ||
+          (
+            isValidPlayer(incoming())
+            && incoming().createdAt == existing().createdAt
+            && (
+              isAdmin() ||
+              (
+                isOwner(uid)
+                && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'age', 'favoritePositions', 'photoStatus', 'business', 'businesses', 'updatedAt'])
+                && incoming().role == existing().role
+                && incoming().approvedPhotoUrl == existing().approvedPhotoUrl
+                && incoming().appearances == existing().appearances
+                && (incoming().photoStatus == existing().photoStatus || incoming().photoStatus in ['none', 'pending'])
+              ) ||
+              (
+                isManager()
+                && incoming().diff(existing()).affectedKeys().hasOnly(['appearances', 'updatedAt'])
+              )
+            )
+          )
+        );
+      allow delete: if isValidId(uid) && isVerifiedUser() && (isOwner(uid) || isAdmin());
+    }
+
+    match /player_private/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isManager());
+      allow list: if isManager() && resource.data.uid > '';
+      allow create: if isValidId(uid)
+        && isVerifiedUser()
+        && (isOwner(uid) || isAdmin())
+        && isValidPlayerPrivate(incoming())
+        && incoming().uid == uid
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(uid)
+        && isVerifiedUser()
+        && (isOwner(uid) || isAdmin())
+        && isValidPlayerPrivate(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(uid) && isVerifiedUser() && (isOwner(uid) || isAdmin());
+    }
+
+    match /player_photos/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin() && resource.data.status == 'pending';
+      allow create: if isValidId(uid)
+        && isVerifiedUser()
+        && (isOwner(uid) || isAdmin())
+        && isValidPlayerPhoto(incoming())
+        && incoming().uid == uid
+        && incoming().status == 'pending'
+        && incoming().rejectionReason == ''
+        && incoming().submittedAt == request.time;
+      allow update: if isValidId(uid)
+        && isVerifiedUser()
+        && isValidPlayerPhoto(incoming())
+        && incoming().uid == existing().uid
+        && (
+          isAdmin() ||
+          (
+            isOwner(uid)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['pendingPhotoData', 'pendingPitchPhotoData', 'pitchCollarStyle', 'pitchSkinTone', 'status', 'rejectionReason', 'submittedAt'])
+            && incoming().status == 'pending'
+            && incoming().rejectionReason == ''
+            && incoming().submittedAt == request.time
+          )
+        );
+      allow delete: if isValidId(uid) && isVerifiedUser() && (isOwner(uid) || isAdmin());
+    }
+
+    match /player_ratings/{ratingId} {
+      allow get: if isValidId(ratingId) && isVerifiedUser();
+      allow list: if isVerifiedUser() && resource.data.skill >= 0 && resource.data.skill <= 100;
+      allow create: if isValidId(ratingId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidPlayerRating(incoming())
+        && incoming().managerId == request.auth.uid
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/players/$(incoming().playerId));
+      allow update: if isValidId(ratingId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidPlayerRating(incoming())
+        && incoming().playerId == existing().playerId
+        && incoming().managerId == existing().managerId
+        && (isAdmin() || existing().managerId == request.auth.uid)
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(ratingId) && isVerifiedUser() && (isAdmin() || (isManager() && existing().managerId == request.auth.uid));
+    }
+
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.pollOpenDay >= 0 && resource.data.pollOpenDay <= 6;
+      allow create: if isValidId(settingId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidClubConfig(incoming())
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidClubConfig(incoming())
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+    }
+
+    match /matches/{matchId} {
+      allow get: if isValidId(matchId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.status in ['open', 'locked', 'completed'];
+      allow create: if isValidId(matchId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidMatch(incoming())
+        && incoming().id == matchId
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(matchId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidMatch(incoming())
+        && incoming().id == existing().id
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().status != 'completed' && (
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'location', 'kickoffIso', 'pollOpensAtIso', 'pollLocksAtIso', 'status', 'teamCount', 'teamColors', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['aiOriginalFormation', 'currentFormation', 'teamCount', 'teamColors', 'formationAttendingUids', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['currentFormation', 'formationAttendingUids', 'teamColors', 'status', 'finalizedPlayerTeams', 'updatedAt'])
+            )
+          ) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['postGameStats', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['postGameStats', 'finalizedPlayerTeams', 'updatedAt'])
+        );
+      allow delete: if isValidId(matchId) && isVerifiedUser() && (isAdmin() || (isManager() && existing().status != 'completed'));
+
+      match /votes/{uid} {
+        allow get: if isValidId(matchId) && isValidId(uid) && isSignedIn();
+        allow list: if isValidId(matchId) && isSignedIn() && resource.data.matchId == matchId;
+        allow create: if isValidId(matchId) && isValidId(uid)
+          && isVerifiedUser()
+          && isValidVote(incoming())
+          && incoming().uid == uid
+          && incoming().matchId == matchId
+          && incoming().updatedAt == request.time
+          && (!('joinedAt' in incoming()) || incoming().joinedAt == null || incoming().joinedAt == request.time)
+          && exists(/databases/$(database)/documents/matches/$(matchId))
+          && (
+            isManager() ||
+            (
+              isOwner(uid)
+              && get(/databases/$(database)/documents/matches/$(matchId)).data.status != 'completed'
+            )
+          );
+        allow update: if isValidId(matchId) && isValidId(uid)
+          && isVerifiedUser()
+          && isValidVote(incoming())
+          && incoming().uid == existing().uid
+          && incoming().matchId == existing().matchId
+          && incoming().updatedAt == request.time
+          && (
+            !('joinedAt' in incoming()) ||
+            incoming().joinedAt == null ||
+            incoming().joinedAt == request.time ||
+            ('joinedAt' in existing() && incoming().joinedAt == existing().joinedAt)
+          )
+          && (
+            isManager() ||
+            (
+              isOwner(uid)
+              && incoming().diff(existing()).affectedKeys().hasOnly(['attending', 'goalieOption', 'playerName', 'joinedAt', 'updatedAt'])
+              && get(/databases/$(database)/documents/matches/$(matchId)).data.status != 'completed'
+            )
+          );
+        allow delete: if isValidId(matchId) && isValidId(uid)
+          && isVerifiedUser()
+          && (
+            isManager() ||
+            (
+              isOwner(uid)
+              && get(/databases/$(database)/documents/matches/$(matchId)).data.status != 'completed'
+            )
+          );
+      }
+    }
+
+    match /education_posts/{postId} {
+      allow get: if isValidId(postId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.category in ['Tactics', 'Positioning', 'Conditioning', 'Rules & Fair Play'];
+      allow create: if isValidId(postId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidEducationPost(incoming())
+        && incoming().id == postId
+        && incoming().authorId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(postId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidEducationPost(incoming())
+        && incoming().id == existing().id
+        && incoming().authorId == existing().authorId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'targetPositions', 'summary', 'content', 'updatedAt']);
+      allow delete: if isValidId(postId) && isVerifiedUser() && isManager();
+    }
+
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update: if isValidId(paymentId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidClubPayment(incoming())
+        && incoming().id == paymentId
+        && incoming().recordedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(paymentId) && isVerifiedUser() && isAdmin();
+    }
+
+    match /payment_aliases/{aliasId} {
+      allow get: if isValidId(aliasId) && isManager();
+      allow list: if isManager() && resource.data.uid > '';
+      allow create, update: if isValidId(aliasId)
+        && isVerifiedUser()
+        && isManager()
+        && isValidPaymentSenderAlias(incoming())
+        && incoming().id == aliasId
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/players/$(incoming().uid));
+      allow delete: if isValidId(aliasId) && isVerifiedUser() && isManager();
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && (isOwner(existing().recipientUid) || isManager());
+      allow list: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow create: if isValidId(notificationId)
+        && isVerifiedUser()
+        && isValidNotification(incoming())
+        && incoming().id == notificationId
+        && incoming().createdBy == request.auth.uid
+        && incoming().read == false
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/matches/$(incoming().matchId))
+        && exists(/databases/$(database)/documents/players/$(incoming().recipientUid));
+      allow update: if isValidId(notificationId)
+        && isVerifiedUser()
+        && isValidNotification(incoming())
+        && incoming().id == existing().id
+        && incoming().recipientUid == existing().recipientUid
+        && incoming().matchId == existing().matchId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && isOwner(existing().recipientUid)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read'])
+        && incoming().read == true;
+      allow delete: if isValidId(notificationId) && isVerifiedUser() && (isOwner(existing().recipientUid) || isAdmin());
+    }
+
+    match /ribbon/{docId} {
+      allow get: if isValidId(docId) && isSignedIn();
+      allow create, update: if isValidId(docId)
+        && isVerifiedUser()
+        && isAdmin()
+        && isValidRibbonConfig(incoming())
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(docId) && isVerifiedUser() && isAdmin();
+    }
+  }
+}

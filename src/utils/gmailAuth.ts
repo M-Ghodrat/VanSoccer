@@ -28,9 +28,13 @@ export function buildRestrictedGmailQuery(userQuery?: string): string {
   return trimmed ? `${senderClause} (${trimmed})` : senderClause;
 }
 
-const googleProvider = new GoogleAuthProvider();
+// Standard Google sign-in provider (only basic identity, no Gmail access)
+export const standardGoogleProvider = new GoogleAuthProvider();
+
+// Scoped provider specifically for admin/treasurer Gmail receipt scanning
+export const gmailProvider = new GoogleAuthProvider();
 for (const scope of GMAIL_SCOPES) {
-  googleProvider.addScope(scope);
+  gmailProvider.addScope(scope);
 }
 
 // Strict in-memory token cache (never stored in localStorage or sessionStorage)
@@ -80,6 +84,19 @@ export function clearGmailAccessToken(): void {
 
 export const clearCachedGmailToken = clearGmailAccessToken;
 
+/**
+ * Standard Google Sign-In for all club players & members.
+ * Only requests default identity (email & profile) with ZERO Gmail permissions.
+ */
+export async function standardGoogleSignIn(): Promise<User> {
+  const result = await signInWithPopup(auth, standardGoogleProvider);
+  return result.user;
+}
+
+/**
+ * Admin/Treasurer Gmail Connect for Interac e-transfer receipt reconciliation.
+ * Explicitly requests read-only access to payment receipts from persepolisvfc@gmail.com.
+ */
 export async function googleSignInWithGmail(): Promise<{
   user: User;
   accessToken: string;
@@ -87,7 +104,7 @@ export async function googleSignInWithGmail(): Promise<{
 }> {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, googleProvider);
+    const result = await signInWithPopup(auth, gmailProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Could not obtain a Gmail access token. Please try signing in with Google again.');
