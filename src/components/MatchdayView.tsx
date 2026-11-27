@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { User } from 'firebase/auth';
-import { doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { AlertTriangle, Calendar, CheckCircle2, Clock, MapPin, Users, XCircle } from 'lucide-react';
-import { db, handleFirestoreError, OperationType } from '../firebase';
 import {
   ClubPayment,
   ClubSettings,
@@ -16,6 +14,7 @@ import {
   formatMatchDisplayTitle,
   formatScheduleLabel,
   formatShortDateTime,
+  getAttendanceWindow,
   getMonthKey,
   isRedundantMatchTitle,
   partitionAttendingVotes,
@@ -93,127 +92,53 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
   const willingGoalieCount = confirmedVotes.filter((v) => v.goalieOption === 'willing').length;
 
   const isManagerOrAdmin = profile.role === 'manager' || profile.role === 'admin';
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const { canJoin, canWithdraw } = activeMatch
+    ? getAttendanceWindow(activeMatch, now)
+    : { canJoin: false, canWithdraw: false };
+
   const matchMonthKey = activeMatch ? getMonthKey(activeMatch.kickoffIso) : getMonthKey();
   const hasPaidForMatchMonth = payments.some(
     (p) => p.uid === user.uid && p.monthKey === matchMonthKey && p.paid
   );
 
-  const castVote = async (attending: boolean, chosenGoalie: GoalieOption) => {
+  const submitVote = async (attending: boolean | null, chosenGoalie: GoalieOption) => {
     if (!activeMatch) return;
     setError(null);
     setNotice(null);
-
     if (attending && !hasPaidForMatchMonth) {
       setError(`Club Fee Notice: You have to pay first for ${matchMonthKey} before joining this match. Please contact a club manager or admin.`);
       return;
     }
-
     setSubmitting(true);
     try {
-      const batch = writeBatch(db);
-      const voteDocRef = doc(db, 'matches', activeMatch.id, 'votes', user.uid);
-      const wasConfirmedAttending = isUserConfirmed;
-      const keepExistingJoinedAt = Boolean(myVote?.attending && attending && myVote.joinedAt);
-
-      batch.set(voteDocRef, {
-        uid: user.uid,
-        matchId: activeMatch.id,
-        attending,
-        goalieOption: attending ? chosenGoalie : 'none',
-        playerName: `${profile.firstName} ${profile.lastName}`,
-        joinedAt: attending
-          ? keepExistingJoinedAt
-            ? myVote!.joinedAt
-            : serverTimestamp()
-          : null,
-        updatedAt: serverTimestamp(),
+      const token = await user.getIdToken();
+      const response = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ matchId: activeMatch.id, attending, goalieOption: chosenGoalie }),
       });
-
-      // If a confirmed player cancels and someone is on the waiting list, notify the #1 waitlisted player
-      if (!attending && wasConfirmedAttending && waitlistedVotes.length > 0) {
-        const promoted = waitlistedVotes[0];
-        if (playersById.has(promoted.uid)) {
-          const notifId = `notif_${Date.now()}_${promoted.uid.slice(0, 12)}`;
-          batch.set(doc(db, 'notifications', notifId), {
-            id: notifId,
-            recipientUid: promoted.uid,
-            matchId: activeMatch.id,
-            matchTitle: formatMatchDisplayTitle(activeMatch).slice(0, 120),
-            type: 'waitlist_promoted',
-            message: `A spot opened up for ${formatMatchDisplayTitle(activeMatch)}! You have been moved off the waiting list into the confirmed lineup.`,
-            read: false,
-            createdBy: user.uid,
-            createdAt: serverTimestamp(),
-          });
-        }
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || 'Could not update attendance.');
       }
-
-      await batch.commit();
-
-      if (attending && !wasConfirmedAttending && isMatchFull) {
-        setNotice(
-          `You have been added to the low-chance waiting list (limit ${maxPlayers} reached). If anyone cancels, you will be automatically moved in and notified.`
-        );
-      } else if (!attending && wasConfirmedAttending && waitlistedVotes.length > 0) {
-        setNotice(
-          `Marked Not Attending. ${waitlistedVotes[0].playerName} has been moved up from the waiting list and notified.`
-        );
+      if (attending === null) setGoalieOption('none');
+      if (attending && !isUserConfirmed && isMatchFull) {
+        setNotice(`You joined the waiting list. The match is currently full (limit ${maxPlayers}).`);
       }
-    } catch (err) {
-      try {
-        handleFirestoreError(err, OperationType.WRITE, `matches/${activeMatch.id}/votes/${user.uid}`);
-      } catch (wrapped) {
-        setError(wrapped instanceof Error ? wrapped.message : 'Could not submit vote.');
-      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not update attendance.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleUnvote = async () => {
-    if (!activeMatch) return;
-    setError(null);
-    setNotice(null);
-    setSubmitting(true);
-    try {
-      const batch = writeBatch(db);
-      batch.delete(doc(db, 'matches', activeMatch.id, 'votes', user.uid));
-
-      if (isUserConfirmed && waitlistedVotes.length > 0) {
-        const promoted = waitlistedVotes[0];
-        if (playersById.has(promoted.uid)) {
-          const notifId = `notif_${Date.now()}_${promoted.uid.slice(0, 12)}`;
-          batch.set(doc(db, 'notifications', notifId), {
-            id: notifId,
-            recipientUid: promoted.uid,
-            matchId: activeMatch.id,
-            matchTitle: formatMatchDisplayTitle(activeMatch).slice(0, 120),
-            type: 'waitlist_promoted',
-            message: `A spot opened up for ${formatMatchDisplayTitle(activeMatch)}! You have been moved off the waiting list into the confirmed lineup.`,
-            read: false,
-            createdBy: user.uid,
-            createdAt: serverTimestamp(),
-          });
-        }
-      }
-
-      await batch.commit();
-      setGoalieOption('none');
-      if (isUserConfirmed && waitlistedVotes.length > 0) {
-        setNotice(
-          `Your vote was cleared. ${waitlistedVotes[0].playerName} has been promoted from the waiting list and notified.`
-        );
-      }
-    } catch (err) {
-      try {
-        handleFirestoreError(err, OperationType.DELETE, `matches/${activeMatch.id}/votes/${user.uid}`);
-      } catch (wrapped) {
-        setError(wrapped instanceof Error ? wrapped.message : 'Could not remove vote.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const castVote = (attending: boolean, chosenGoalie: GoalieOption) => submitVote(attending, chosenGoalie);
+  const handleUnvote = () => submitVote(null, 'none');
 
   if (!activeMatch) {
     return (
@@ -242,7 +167,7 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
             <span className={isMatchFull ? 'text-amber-700 font-semibold' : 'text-emerald-700 font-semibold'}>
-              {isMatchFull ? 'Waitlist Open' : 'Open'}
+              {!canJoin ? 'Poll Closed' : isMatchFull ? 'Waitlist Open' : 'Open'}
             </span>
             <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1">
@@ -360,7 +285,7 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
             >
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || !canJoin}
                 aria-pressed={Boolean(myVote?.attending)}
                 onClick={() => castVote(true, goalieOption)}
                 className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all inline-flex items-center gap-1.5 whitespace-nowrap ${
@@ -381,7 +306,7 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
 
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || !canWithdraw}
                 aria-pressed={Boolean(myVote && !myVote.attending)}
                 onClick={() => castVote(false, 'none')}
                 className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all inline-flex items-center gap-1.5 whitespace-nowrap ${
@@ -398,7 +323,7 @@ export const MatchdayView: React.FC<MatchdayViewProps> = ({
             {myVote && (
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || !canWithdraw}
                 onClick={handleUnvote}
                 title="Clear vote"
                 aria-label="Clear vote"

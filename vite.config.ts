@@ -8,8 +8,8 @@ function copyMediapipeWasmPlugin(): Plugin {
   return {
     name: 'copy-mediapipe-wasm',
     closeBundle() {
-      const srcDir = path.resolve(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm');
-      const destDir = path.resolve(__dirname, 'dist', 'mediapipe', 'wasm');
+      const srcDir = path.resolve(import.meta.dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm');
+      const destDir = path.resolve(import.meta.dirname, 'dist', 'mediapipe', 'wasm');
       if (!fs.existsSync(srcDir)) return;
       fs.mkdirSync(destDir, { recursive: true });
       for (const entry of fs.readdirSync(srcDir)) {
@@ -28,7 +28,7 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss(), copyMediapipeWasmPlugin()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {

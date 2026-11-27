@@ -46,6 +46,23 @@ service cloud.firestore {
       );
     }
 
+    function isClubMember() {
+      return isVerifiedUser() && (
+        isManager() || exists(/databases/$(database)/documents/members/$(request.auth.uid))
+      );
+    }
+
+    match /members/{uid} {
+      allow get: if isOwner(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(uid)
+        && exists(/databases/$(database)/documents/players/$(uid))
+        && incoming().keys().hasOnly(['approvedBy', 'approvedAt'])
+        && incoming().approvedBy == request.auth.uid
+        && incoming().approvedAt == request.time;
+      allow delete: if isAdmin() || (isVerifiedUser() && isOwner(uid));
+    }
+
     // 3. Entity Validation Helpers
     function isValidAdmin(data) {
       return data.keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt'])
@@ -448,12 +465,36 @@ service cloud.firestore {
       allow delete: if isValidId(uid) && isAdmin();
     }
 
+    function isPublicBusinessList(data) {
+      return !('business' in data) && (
+        !('businesses' in data) || (
+          isValidPlayerBusinessesList(data.businesses)
+          && (data.businesses.size() < 1 || data.businesses[0].allowPromotion)
+          && (data.businesses.size() < 2 || data.businesses[1].allowPromotion)
+          && (data.businesses.size() < 3 || data.businesses[2].allowPromotion)
+          && (data.businesses.size() < 4 || data.businesses[3].allowPromotion)
+          && (data.businesses.size() < 5 || data.businesses[4].allowPromotion)
+        )
+      );
+    }
+
+    match /player_business_private/{uid} {
+      allow get: if isOwner(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isVerifiedUser() && (isOwner(uid) || isAdmin())
+        && incoming().keys().hasOnly(['businesses', 'updatedAt'])
+        && isValidPlayerBusinessesList(incoming().businesses)
+        && incoming().updatedAt == request.time;
+      allow delete: if isVerifiedUser() && (isOwner(uid) || isAdmin());
+    }
+
     match /players/{uid} {
-      allow get: if isValidId(uid) && isSignedIn();
-      allow list: if isSignedIn() && resource.data.role in ['player', 'manager', 'admin'];
+      allow get: if isValidId(uid) && (isOwner(uid) || isClubMember());
+      allow list: if isClubMember() && resource.data.role in ['player', 'manager', 'admin'];
       allow create: if isValidId(uid)
         && isVerifiedUser()
         && isValidPlayer(incoming())
+        && isPublicBusinessList(incoming())
         && incoming().uid == uid
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
@@ -472,6 +513,8 @@ service cloud.firestore {
         && isVerifiedUser()
         && incoming().uid == existing().uid
         && incoming().updatedAt == request.time
+        && (!incoming().diff(existing()).affectedKeys().hasAny(['business', 'businesses'])
+          || isPublicBusinessList(incoming()))
         && (
           (
             (isOwner(uid) || isAdmin())
@@ -503,8 +546,8 @@ service cloud.firestore {
     }
 
     match /player_private/{uid} {
-      allow get: if isValidId(uid) && (isOwner(uid) || isManager());
-      allow list: if isManager() && resource.data.uid > '';
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin() && resource.data.uid > '';
       allow create: if isValidId(uid)
         && isVerifiedUser()
         && (isOwner(uid) || isAdmin())
@@ -549,8 +592,8 @@ service cloud.firestore {
     }
 
     match /player_ratings/{ratingId} {
-      allow get: if isValidId(ratingId) && isVerifiedUser();
-      allow list: if isVerifiedUser() && resource.data.skill >= 0 && resource.data.skill <= 100;
+      allow get: if isValidId(ratingId) && isManager();
+      allow list: if isManager() && resource.data.skill >= 0 && resource.data.skill <= 100;
       allow create: if isValidId(ratingId)
         && isVerifiedUser()
         && isManager()
@@ -570,8 +613,8 @@ service cloud.firestore {
     }
 
     match /settings/{settingId} {
-      allow get: if isValidId(settingId) && isSignedIn();
-      allow list: if isSignedIn() && resource.data.pollOpenDay >= 0 && resource.data.pollOpenDay <= 6;
+      allow get: if isValidId(settingId) && isClubMember();
+      allow list: if isClubMember() && resource.data.pollOpenDay >= 0 && resource.data.pollOpenDay <= 6;
       allow create: if isValidId(settingId)
         && isVerifiedUser()
         && isManager()
@@ -587,8 +630,8 @@ service cloud.firestore {
     }
 
     match /matches/{matchId} {
-      allow get: if isValidId(matchId) && isSignedIn();
-      allow list: if isSignedIn() && resource.data.status in ['open', 'locked', 'completed'];
+      allow get: if isValidId(matchId) && isClubMember();
+      allow list: if isClubMember() && resource.data.status in ['open', 'locked', 'completed'];
       allow create: if isValidId(matchId)
         && isVerifiedUser()
         && isManager()
@@ -620,58 +663,29 @@ service cloud.firestore {
       allow delete: if isValidId(matchId) && isVerifiedUser() && (isAdmin() || (isManager() && existing().status != 'completed'));
 
       match /votes/{uid} {
-        allow get: if isValidId(matchId) && isValidId(uid) && isSignedIn();
-        allow list: if isValidId(matchId) && isSignedIn() && resource.data.matchId == matchId;
-        allow create: if isValidId(matchId) && isValidId(uid)
-          && isVerifiedUser()
+        allow get: if isValidId(matchId) && isValidId(uid) && isClubMember();
+        allow list: if isValidId(matchId) && isClubMember() && resource.data.matchId == matchId;
+        // Player RSVPs go through the attendance function. Staff retain manual roster controls.
+        allow create, update: if isValidId(matchId) && isValidId(uid)
+          && isManager()
           && isValidVote(incoming())
           && incoming().uid == uid
           && incoming().matchId == matchId
-          && incoming().updatedAt == request.time
-          && (!('joinedAt' in incoming()) || incoming().joinedAt == null || incoming().joinedAt == request.time)
-          && exists(/databases/$(database)/documents/matches/$(matchId))
-          && (
-            isManager() ||
-            (
-              isOwner(uid)
-              && get(/databases/$(database)/documents/matches/$(matchId)).data.status != 'completed'
-            )
-          );
-        allow update: if isValidId(matchId) && isValidId(uid)
-          && isVerifiedUser()
-          && isValidVote(incoming())
-          && incoming().uid == existing().uid
-          && incoming().matchId == existing().matchId
           && incoming().updatedAt == request.time
           && (
             !('joinedAt' in incoming()) ||
             incoming().joinedAt == null ||
             incoming().joinedAt == request.time ||
-            ('joinedAt' in existing() && incoming().joinedAt == existing().joinedAt)
+            (resource != null && 'joinedAt' in existing() && incoming().joinedAt == existing().joinedAt)
           )
-          && (
-            isManager() ||
-            (
-              isOwner(uid)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['attending', 'goalieOption', 'playerName', 'joinedAt', 'updatedAt'])
-              && get(/databases/$(database)/documents/matches/$(matchId)).data.status != 'completed'
-            )
-          );
-        allow delete: if isValidId(matchId) && isValidId(uid)
-          && isVerifiedUser()
-          && (
-            isManager() ||
-            (
-              isOwner(uid)
-              && get(/databases/$(database)/documents/matches/$(matchId)).data.status != 'completed'
-            )
-          );
+          && exists(/databases/$(database)/documents/matches/$(matchId));
+        allow delete: if isValidId(matchId) && isValidId(uid) && isManager();
       }
     }
 
     match /education_posts/{postId} {
-      allow get: if isValidId(postId) && isSignedIn();
-      allow list: if isSignedIn() && resource.data.category in ['Tactics', 'Positioning', 'Conditioning', 'Rules & Fair Play'];
+      allow get: if isValidId(postId) && isClubMember();
+      allow list: if isClubMember() && resource.data.category in ['Tactics', 'Positioning', 'Conditioning', 'Rules & Fair Play'];
       allow create: if isValidId(postId)
         && isVerifiedUser()
         && isManager()
@@ -693,8 +707,9 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow get: if isValidId(paymentId) && isSignedIn();
-      allow list: if isSignedIn();
+      allow get: if isValidId(paymentId) && isClubMember()
+        && (isManager() || isOwner(existing().uid));
+      allow list: if isClubMember() && (isManager() || isOwner(existing().uid));
       allow create, update: if isValidId(paymentId)
         && isVerifiedUser()
         && isManager()
@@ -720,10 +735,10 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow get: if isValidId(notificationId) && isSignedIn() && (isOwner(existing().recipientUid) || isManager());
-      allow list: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow get: if isValidId(notificationId) && isClubMember() && (isOwner(existing().recipientUid) || isManager());
+      allow list: if isClubMember() && resource.data.recipientUid == request.auth.uid;
       allow create: if isValidId(notificationId)
-        && isVerifiedUser()
+        && isManager()
         && isValidNotification(incoming())
         && incoming().id == notificationId
         && incoming().createdBy == request.auth.uid
@@ -746,7 +761,7 @@ service cloud.firestore {
     }
 
     match /ribbon/{docId} {
-      allow get: if isValidId(docId) && isSignedIn();
+      allow get: if isValidId(docId) && isClubMember();
       allow create, update: if isValidId(docId)
         && isVerifiedUser()
         && isAdmin()

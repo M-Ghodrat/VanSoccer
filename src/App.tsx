@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { onIdTokenChanged, signOut, User } from 'firebase/auth';
 import {
   collection,
@@ -49,7 +49,6 @@ import {
   DEFAULT_RIBBON_CONFIG,
   DropInMatch,
   EducationPost,
-  FinalizedPlayerTeamEntry,
   getPlayerBusinesses,
   MatchVote,
   PaymentSenderAlias,
@@ -67,21 +66,22 @@ import {
   isRedundantMatchTitle,
   partitionAttendingVotes,
 } from './utils/clubUtils';
-import { isTestPlayerUid, seedTestPlayers, TEST_PLAYERS_DISMISSED_KEY } from './utils/testPlayers';
+import { isTestPlayerUid } from './utils/testPlayers';
 import { AuthGate } from './components/AuthGate';
-import { ProfileView } from './components/ProfileView';
 import { MatchdayView } from './components/MatchdayView';
 import { MatchesView } from './components/MatchesView';
-import { ManagerHub } from './components/ManagerHub';
 import { StatsView } from './components/StatsView';
 import { EducationView } from './components/EducationView';
-import { AdminHub } from './components/AdminHub';
-import { PaymentsHub } from './components/PaymentsHub';
 import { ClubRibbon } from './components/ClubRibbon';
 import { ClubBrandMark } from './components/ClubBrandMark';
-import { RibbonManager } from './components/RibbonManager';
-import { PlayerRatingDeck } from './components/PlayerRatingDeck';
 import { clearGmailAccessToken } from './utils/gmailAuth';
+
+const ProfileView = lazy(() => import('./components/ProfileView').then((module) => ({ default: module.ProfileView })));
+const ManagerHub = lazy(() => import('./components/ManagerHub').then((module) => ({ default: module.ManagerHub })));
+const AdminHub = lazy(() => import('./components/AdminHub').then((module) => ({ default: module.AdminHub })));
+const PaymentsHub = lazy(() => import('./components/PaymentsHub').then((module) => ({ default: module.PaymentsHub })));
+const RibbonManager = lazy(() => import('./components/RibbonManager').then((module) => ({ default: module.RibbonManager })));
+const PlayerRatingDeck = lazy(() => import('./components/PlayerRatingDeck').then((module) => ({ default: module.PlayerRatingDeck })));
 
 type AppTab =
   | 'lineup'
@@ -120,8 +120,6 @@ export default function App() {
   const [applyingBeforeLeave, setApplyingBeforeLeave] = useState(false);
   const ribbonApplyHandlerRef = useRef<(() => Promise<boolean>) | null>(null);
   const [players, setPlayers] = useState<PlayerProfile[]>([]);
-  const [playersLoaded, setPlayersLoaded] = useState(false);
-  const autoSeededRef = useRef(false);
   const [matches, setMatches] = useState<DropInMatch[]>([]);
   const [payments, setPayments] = useState<ClubPayment[]>([]);
   const [paymentsLoaded, setPaymentsLoaded] = useState(false);
@@ -135,29 +133,31 @@ export default function App() {
 
   const [isAdminFlag, setIsAdminFlag] = useState(false);
   const [isManagerFlag, setIsManagerFlag] = useState(false);
-  const [clockTickMs, setClockTickMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setClockTickMs(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const lastAuthUid = useRef<string | null>(null);
+  const [memberUid, setMemberUid] = useState<string | null>(null);
+  const [membershipCheckedUid, setMembershipCheckedUid] = useState<string | null>(null);
 
   // Auth + ID token listener (tracks emailVerified transitions cleanly)
   useEffect(() => {
     const unsub = onIdTokenChanged(auth, async (firebaseUser) => {
+      const uid = firebaseUser?.uid ?? null;
+      const userChanged = uid !== lastAuthUid.current;
+      lastAuthUid.current = uid;
       setUser(firebaseUser);
       const verified = Boolean(firebaseUser?.emailVerified);
       setIsEmailVerified(verified);
       setAuthReady(true);
 
-      if (!firebaseUser || !verified) {
+      if (userChanged || !firebaseUser || !verified) {
         setMyProfile(null);
         setProfileLoaded(false);
         setPaymentsLoaded(false);
+        setMemberUid(null);
+        setMembershipCheckedUid(null);
         setIsAdminFlag(false);
         setIsManagerFlag(false);
-        return;
       }
+      if (!firebaseUser || !verified) return;
 
       // Ensure cached JWT actually reflects email_verified: true for Firestore rules
       try {
@@ -254,6 +254,32 @@ export default function App() {
       )
     );
 
+    unsubs.push(onSnapshot(doc(db, 'members', user.uid), (snap) => {
+      setMemberUid(snap.exists() ? user.uid : null);
+      setMembershipCheckedUid(user.uid);
+    }));
+
+    return () => unsubs.forEach((unsubscribe) => unsubscribe());
+  }, [user, isEmailVerified]);
+
+  const effectiveRole: 'admin' | 'manager' | 'player' = isAdminFlag
+    ? 'admin'
+    : isManagerFlag
+      ? 'manager'
+      : 'player';
+
+  const isManagerOrAdmin = effectiveRole === 'manager' || effectiveRole === 'admin';
+  const isAdmin = effectiveRole === 'admin';
+
+  const isApprovedMember = Boolean(user && isEmailVerified && (memberUid === user.uid || isManagerOrAdmin));
+
+  useEffect(() => {
+    setPaymentsLoaded(false);
+    setPayments([]);
+    setRatings([]);
+    if (!user || !isApprovedMember) return;
+    const unsubs: (() => void)[] = [];
+
     unsubs.push(
       onSnapshot(
         doc(db, 'settings', 'clubConfig'),
@@ -285,7 +311,6 @@ export default function App() {
         query(collection(db, 'players'), where('role', 'in', ['player', 'manager', 'admin'])),
         (snap) => {
           setPlayers(snap.docs.map((d) => d.data() as PlayerProfile));
-          setPlayersLoaded(true);
         },
         (err) => handleFirestoreError(err, OperationType.LIST, 'players')
       )
@@ -328,7 +353,9 @@ export default function App() {
 
     unsubs.push(
       onSnapshot(
-        query(collection(db, 'payments')),
+        isManagerOrAdmin
+          ? collection(db, 'payments')
+          : query(collection(db, 'payments'), where('uid', '==', user.uid)),
         (snap) => {
           setPayments(
             snap.docs.map((d) => ({
@@ -361,7 +388,7 @@ export default function App() {
       )
     );
 
-    unsubs.push(
+    if (isManagerOrAdmin) unsubs.push(
       onSnapshot(
         query(collection(db, 'player_ratings'), where('skill', '>=', 0), where('skill', '<=', 100)),
         (snap) => {
@@ -377,47 +404,7 @@ export default function App() {
     );
 
     return () => unsubs.forEach((u) => u());
-  }, [user, isEmailVerified]);
-
-  const effectiveRole: 'admin' | 'manager' | 'player' = isAdminFlag
-    ? 'admin'
-    : isManagerFlag
-      ? 'manager'
-      : myProfile?.role || 'player';
-
-  const isManagerOrAdmin = effectiveRole === 'manager' || effectiveRole === 'admin';
-  const isAdmin = effectiveRole === 'admin';
-
-  // Automatic match archiving at kickoff (managers/admins persist completion + team snapshot)
-  useEffect(() => {
-    if (!user || !isEmailVerified || !isManagerOrAdmin) return;
-    const now = clockTickMs;
-    for (const m of matches) {
-      if ((m.status === 'open' || m.status === 'locked') && new Date(m.kickoffIso).getTime() <= now) {
-        const finalizedPlayerTeams: FinalizedPlayerTeamEntry[] =
-          m.finalizedPlayerTeams && m.finalizedPlayerTeams.length > 0
-            ? m.finalizedPlayerTeams
-            : (m.currentFormation?.teams || []).flatMap((team) =>
-                team.players.map((pl) => ({
-                  uid: pl.uid,
-                  name: pl.name,
-                  teamIndex: team.teamIndex,
-                  teamColor: team.color,
-                  assignedPosition: pl.assignedPosition,
-                }))
-              );
-        setDoc(
-          doc(db, 'matches', m.id),
-          {
-            status: 'completed',
-            ...(finalizedPlayerTeams.length > 0 ? { finalizedPlayerTeams } : {}),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        ).catch(() => {});
-      }
-    }
-  }, [user, isEmailVerified, isManagerOrAdmin, matches, clockTickMs]);
+  }, [user, isApprovedMember, isManagerOrAdmin]);
 
   // Manager/Admin privileged subscriptions
   useEffect(() => {
@@ -473,32 +460,6 @@ export default function App() {
     return () => unsubs.forEach((u) => u());
   }, [user, isEmailVerified, isManagerOrAdmin, isAdmin]);
 
-  // Seed 9 removable test players once for admin testing unless explicitly dismissed
-  useEffect(() => {
-    if (
-      !user ||
-      !isEmailVerified ||
-      !isAdmin ||
-      !myProfile ||
-      !playersLoaded ||
-      autoSeededRef.current
-    ) {
-      return;
-    }
-
-    const hasTestPlayers = players.some((p) => p.uid.startsWith('test_player_'));
-    const dismissed = localStorage.getItem(TEST_PLAYERS_DISMISSED_KEY) === 'true';
-    if (hasTestPlayers || dismissed) {
-      autoSeededRef.current = true;
-      return;
-    }
-
-    autoSeededRef.current = true;
-    seedTestPlayers(user, { ...myProfile, role: 'admin' }).catch(() => {
-      autoSeededRef.current = false;
-    });
-  }, [user, isEmailVerified, isAdmin, myProfile, playersLoaded, players]);
-
   const activeMatch = useMemo(
     () => matches.find((m) => m.status === 'open' || m.status === 'locked') || null,
     [matches]
@@ -514,7 +475,7 @@ export default function App() {
 
   // Active match votes listener
   useEffect(() => {
-    if (!user || !isEmailVerified || !activeMatch) {
+    if (!user || !isApprovedMember || !activeMatch) {
       setActiveMatchVotes([]);
       return;
     }
@@ -531,7 +492,7 @@ export default function App() {
     );
 
     return () => unsub();
-  }, [user, isEmailVerified, activeMatch]);
+  }, [user, isApprovedMember, activeMatch]);
 
   const playersById = useMemo(() => new Map(players.map((p) => [p.uid, p])), [players]);
   const myVoteOnActiveMatch = useMemo(
@@ -631,7 +592,7 @@ export default function App() {
         updatedAt: serverTimestamp(),
       });
     }
-    batch.commit().catch(() => {});
+    batch.commit().catch((error) => console.error('Could not reconcile match eligibility:', error));
   }, [user, isEmailVerified, isManagerOrAdmin, paymentsLoaded, activeMatch, activeMatchVotes, payments, settings.maxPlayers, playersById]);
 
   // Default managers/admins to Lineup on first profile load, and keep non-managers off restricted tabs
@@ -687,6 +648,18 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-sm font-medium text-slate-600">Loading player roster...</div>
       </div>
+    );
+  }
+
+  if (myProfile && !isApprovedMember) {
+    return (
+      <main className="min-h-screen grid place-content-center gap-4 p-6 text-center">
+        <h1 className="text-xl font-semibold">
+          {membershipCheckedUid === user.uid ? 'Club approval pending' : 'Checking club membership…'}
+        </h1>
+        <p>Ask a club admin to approve your account.</p>
+        <button type="button" onClick={() => void signOut(auth)} className="underline">Sign out</button>
+      </main>
     );
   }
 
@@ -1228,6 +1201,7 @@ export default function App() {
         {effectiveProfile && <ClubRibbon config={ribbonConfig} playersById={playersById} />}
 
         <main className="flex-1 min-w-0 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+        <Suspense fallback={<p className="p-4 text-sm text-slate-600">Loading…</p>}>
         {!effectiveProfile ? (
           <ProfileView
             user={user}
@@ -1447,6 +1421,7 @@ export default function App() {
             )}
           </>
         )}
+        </Suspense>
         </main>
       </div>
 
